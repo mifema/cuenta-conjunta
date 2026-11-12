@@ -22,7 +22,7 @@ function formatYearMonthES(ym) {
   if (!ym || !ym.includes('-')) return 'Resumen del mes';
   const [y, m] = ym.split('-');
   const idx = parseInt(m, 10) - 1;
-  return `${MONTH_NAMES_ES[idx] || m} ${y}`;
+  return `${MONTH_NAMES_ES[idx] || m} de ${y}`;
 }
 
 function getDefaultState() {
@@ -260,6 +260,8 @@ function renderApp() {
   document.getElementById('header-pct-badge').textContent = `${pct}%`;
   document.querySelectorAll('.pct-label').forEach(el => (el.textContent = pct));
   document.getElementById('month-picker').value = month;
+  const displayEl = document.getElementById('month-display-text');
+  if (displayEl) displayEl.textContent = formatYearMonthES(month);
   document.getElementById('month-human-label').textContent = `Resumen de ${formatYearMonthES(month)}`;
 
   const s1 = getMemberStats('user1', month);
@@ -433,8 +435,8 @@ function renderMemberCard(userKey, name, stats) {
       }
 
       <div class="flex flex-wrap items-center gap-1.5 pt-1">
-        <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1 min-w-[160px]">
-          <input id="partial-input-${userKey}" type="number" step="0.01" placeholder="Aportar € parcial..."
+        <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1 min-w-[140px]">
+          <input id="partial-input-${userKey}" type="number" step="0.01" placeholder="Importe €"
             class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600" />
           <button type="submit"
             class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl text-xs transition shrink-0">
