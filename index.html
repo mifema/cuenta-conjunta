@@ -280,18 +280,23 @@
 
       <!-- Bloque 2: Notificaciones Web Push Día 1 y Día 15 (Android e iOS) -->
       <div class="pt-4 border-t border-slate-100 space-y-3">
-        <p class="text-xs font-bold uppercase tracking-wider text-emerald-600">2. Avisos Día 1 y 15 (Android e iPhone)</p>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-bold uppercase tracking-wider text-emerald-600">2. Avisos Día 1 y 15</p>
+          <span id="push-status-badge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+            ⚪ Desactivadas
+          </span>
+        </div>
         <p class="text-xs text-slate-500 leading-relaxed">
-          Activa las notificaciones Web Push en este teléfono para recibir avisos el <strong>día 1 y el día 15</strong> si aún falta algo por aportar.
-          <span class="block text-[11px] text-slate-400 mt-0.5">(En iPhone, añade primero la web a la pantalla de inicio desde Safari y ábrela desde su icono).</span>
+          Recibe un aviso en este teléfono el <strong>día 1 y el día 15</strong> si aún falta algo por aportar.
+          <span class="block text-[11px] text-slate-400 mt-0.5">(En iPhone, abre la app desde el icono de la pantalla de inicio).</span>
         </p>
 
         <div class="flex flex-wrap gap-2">
-          <button type="button" onclick="enablePushNotifications()"
+          <button id="push-toggle-btn" type="button" onclick="togglePushNotifications()"
             class="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition">
-            🔔 Activar notificaciones Push
+            🔔 Activar notificaciones
           </button>
-          <button type="button" onclick="sendTestNotification()"
+          <button id="push-test-btn" type="button" onclick="sendTestNotification()"
             class="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition">
             Probar aviso
           </button>
