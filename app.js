@@ -123,6 +123,14 @@ async function handleLogin(e) {
       role: data.role
     });
 
+    // Notificar al gestor de contraseñas / biometría del teléfono (Android / iOS)
+    try {
+      if (window.PasswordCredential && navigator.credentials && navigator.credentials.store) {
+        const cred = new window.PasswordCredential({ id: data.username, password: password, name: data.username });
+        navigator.credentials.store(cred).catch(() => {});
+      }
+    } catch (e) {}
+
     applyRemoteState(data.state);
     passwordInput.value = '';
     showAppScreen();
@@ -147,6 +155,7 @@ function showAppScreen() {
   document.getElementById('app-screen').classList.remove('hidden');
   renderApp();
   updateSyncIndicator('cloud', 'Sincronizado');
+  checkAutomaticDay1And15Push();
 }
 
 function applyRemoteState(remoteData) {
@@ -896,7 +905,152 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ============================================================================
+// PWA INSTALABLE (ANDROID & iOS) Y NOTIFICACIONES WEB PUSH (DÍA 1 Y DÍA 15)
+// ============================================================================
+let deferredInstallPrompt = null;
+let swRegistration = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const banner = document.getElementById('install-pwa-banner');
+  if (banner) banner.classList.remove('hidden');
+});
+
+async function triggerInstallPwa() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  const banner = document.getElementById('install-pwa-banner');
+  if (banner) banner.classList.add('hidden');
+}
+
+async function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    try {
+      swRegistration = await navigator.serviceWorker.register('/sw.js');
+    } catch (err) {
+      console.warn('ServiceWorker:', err);
+    }
+  }
+}
+
+async function showSystemNotification(title, body) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+
+  if (swRegistration && swRegistration.active) {
+    swRegistration.active.postMessage({
+      type: 'SHOW_NOTIFICATION',
+      title,
+      body
+    });
+    return true;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(title, {
+      body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png'
+    });
+    return true;
+  } catch (e) {
+    new Notification(title, { body, icon: '/icon-192.png' });
+    return true;
+  }
+}
+
+async function enablePushNotifications() {
+  const feedback = document.getElementById('push-feedback');
+  feedback.classList.add('hidden');
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+  if (!('Notification' in window)) {
+    feedback.textContent = isIOS && !isStandalone
+      ? '📲 En iPhone: primero toca el botón Compartir de Safari → "Añadir a pantalla de inicio", abre la app desde su icono nuevo y pulsa aquí.'
+      : 'Este navegador no soporta notificaciones Push.';
+    feedback.className = 'text-xs p-2.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200';
+    feedback.classList.remove('hidden');
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') {
+    localStorage.setItem('cuenta_conjunta_push_enabled', 'true');
+    feedback.textContent = '✅ Notificaciones activadas en este teléfono para los días 1 y 15.';
+    feedback.className = 'text-xs p-2.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200';
+    feedback.classList.remove('hidden');
+
+    await showSystemNotification(
+      'Cuenta Conjunta · Avisos activos',
+      'Te avisaremos el día 1 y el día 15 si queda alguna aportación pendiente.'
+    );
+  } else {
+    feedback.textContent = 'Permiso denegado. Revisa los ajustes de notificaciones del navegador.';
+    feedback.className = 'text-xs p-2.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200';
+    feedback.classList.remove('hidden');
+  }
+}
+
+async function sendTestNotification() {
+  const feedback = document.getElementById('push-feedback');
+  if (!('Notification' in window) || Notification.permission !== 'granted') {
+    await enablePushNotifications();
+    return;
+  }
+
+  const ym = getCurrentYearMonth();
+  const s1 = getMemberStats('user1', ym);
+  const s2 = getMemberStats('user2', ym);
+  const totalMissing = s1.remainingTotal + s2.remainingTotal;
+
+  const bodyText =
+    totalMissing > 0.01
+      ? `Recordatorio mensual: aún faltan ${formatEUR(totalMissing)} por aportar a la cuenta conjunta.`
+      : `¡Todo al día! Ambos habéis completado vuestra aportación de este mes.`;
+
+  await showSystemNotification('🔔 Cuenta Conjunta', bodyText);
+  feedback.textContent = '🔔 Notificación enviada a tu teléfono.';
+  feedback.className = 'text-xs p-2.5 rounded-xl bg-indigo-50 text-indigo-800 border border-indigo-200';
+  feedback.classList.remove('hidden');
+}
+
+// Comprueba automáticamente el día 1 (del 1 al 5) y el día 15 (del 15 al 20) si falta aportar
+async function checkAutomaticDay1And15Push() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (localStorage.getItem('cuenta_conjunta_push_enabled') !== 'true') return;
+
+  const now = new Date();
+  const day = now.getDate();
+  const ym = getCurrentYearMonth();
+
+  let period = null;
+  if (day >= 1 && day <= 5) period = 'day1';
+  if (day >= 15 && day <= 20) period = 'day15';
+  if (!period) return;
+
+  const notifiedKey = `notified_${ym}_${period}`;
+  if (localStorage.getItem(notifiedKey)) return;
+
+  const s1 = getMemberStats('user1', ym);
+  const s2 = getMemberStats('user2', ym);
+  const totalMissing = s1.remainingTotal + s2.remainingTotal;
+
+  if (totalMissing > 0.01) {
+    localStorage.setItem(notifiedKey, 'true');
+    const title = period === 'day1' ? '📅 Día 1 · Cuenta Conjunta' : '🔔 Día 15 · Cuenta Conjunta';
+    const body = `Recordatorio: faltan ${formatEUR(totalMissing)} por aportar a la cuenta conjunta este mes.`;
+    await showSystemNotification(title, body);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  registerServiceWorker();
   if (currentSession) {
     pullStateFromSupabase();
   }
