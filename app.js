@@ -264,13 +264,44 @@ function getMemberStats(userKey, month) {
   };
 }
 
+function getVisibleExpensesForMonth(month) {
+  return state.expenses.filter(exp => {
+    if (exp.type === 'oneoff') {
+      return exp.createdMonth === month;
+    }
+    return true;
+  });
+}
+
 function getExpenseForMonth(exp, month) {
   const key = `${month}_${exp.id}`;
   const override = state.monthlyExpenseOverrides[key];
-  const defaultActive = exp.type !== 'periodic';
-  const active = override && typeof override.active === 'boolean' ? override.active : defaultActive;
-  const amount = override && override.amount !== undefined ? Number(override.amount) : Number(exp.baseAmount);
-  return { active, amount };
+
+  if (exp.type === 'fixed') {
+    return { active: true, amount: Number(exp.baseAmount) || 0 };
+  }
+
+  if (exp.type === 'variable') {
+    // En gastos variables, el resto de meses queda a 0 € hasta que se introduzca el valor de ese mes
+    const amt = override && override.amount !== undefined ? Number(override.amount) : 0;
+    return { active: true, amount: amt };
+  }
+
+  if (exp.type === 'periodic') {
+    // Ocasional: desmarcado por defecto salvo los meses en que se active
+    const active = override && typeof override.active === 'boolean' ? override.active : false;
+    const amt = override && override.amount !== undefined ? Number(override.amount) : Number(exp.baseAmount) || 0;
+    return { active, amount: amt };
+  }
+
+  if (exp.type === 'oneoff') {
+    // Puntual: solo existe en el mes en que se creó
+    const isThisMonth = exp.createdMonth === month;
+    const amt = override && override.amount !== undefined ? Number(override.amount) : Number(exp.baseAmount) || 0;
+    return { active: isThisMonth, amount: isThisMonth ? amt : 0 };
+  }
+
+  return { active: true, amount: Number(exp.baseAmount) || 0 };
 }
 
 // ============================================================================
@@ -303,7 +334,8 @@ function renderApp() {
 
   let totalMonthExpenses = 0;
   let activeExpensesCount = 0;
-  state.expenses.forEach(exp => {
+  const visibleExpenses = getVisibleExpensesForMonth(month);
+  visibleExpenses.forEach(exp => {
     const mExp = getExpenseForMonth(exp, month);
     if (mExp.active) {
       totalMonthExpenses += mExp.amount;
@@ -543,19 +575,21 @@ function renderMemberCard(userKey, name, stats) {
 function renderExpensesList() {
   const listEl = document.getElementById('expenses-list');
   const month = state.selectedMonth;
+  const visibleExpenses = getVisibleExpensesForMonth(month);
 
-  if (state.expenses.length === 0) {
-    listEl.innerHTML = `<div class="p-6 text-center text-slate-400 text-sm">Aún no hay recibos comunes. Añádelos aquí abajo.</div>`;
+  if (visibleExpenses.length === 0) {
+    listEl.innerHTML = `<div class="p-6 text-center text-slate-400 text-sm">Aún no hay recibos o gastos en este mes. Añádelos aquí abajo.</div>`;
     return;
   }
 
   const badgeByType = {
     fixed: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">📌 Fijo</span>`,
     variable: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-50 text-blue-700">⚡ Variable</span>`,
-    periodic: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-50 text-purple-700">🗓️ 2-3 meses</span>`
+    periodic: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-50 text-purple-700">🗓️ Ocasional</span>`,
+    oneoff: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-800">🛒 Puntual</span>`
   };
 
-  listEl.innerHTML = state.expenses
+  listEl.innerHTML = visibleExpenses
     .map(exp => {
       const mExp = getExpenseForMonth(exp, month);
 
@@ -708,19 +742,23 @@ function handleAddExpense(e) {
   const nameEl = document.getElementById('exp-name');
   const typeEl = document.getElementById('exp-type');
   const amtEl = document.getElementById('exp-amount');
+  const enteredAmount = parseFloat(amtEl.value) || 0;
 
   const newExp = {
     id: 'exp-' + Date.now(),
     name: nameEl.value.trim(),
     type: typeEl.value,
-    baseAmount: parseFloat(amtEl.value) || 0
+    baseAmount: typeEl.value === 'variable' ? 0 : enteredAmount,
+    createdMonth: state.selectedMonth
   };
 
   state.expenses.push(newExp);
-  if (newExp.type === 'periodic') {
+
+  // Para Variable, Ocasional y Puntual guardamos el importe en el mes actual
+  if (newExp.type === 'variable' || newExp.type === 'periodic' || newExp.type === 'oneoff') {
     state.monthlyExpenseOverrides[`${state.selectedMonth}_${newExp.id}`] = {
       active: true,
-      amount: newExp.baseAmount
+      amount: enteredAmount
     };
   }
 
@@ -750,7 +788,7 @@ function updateExpenseMonthAmount(expId, newVal) {
   const current = getExpenseForMonth(exp, state.selectedMonth);
   const key = `${state.selectedMonth}_${expId}`;
 
-  if (exp.type === 'fixed') {
+  if (exp.type === 'fixed' || exp.type === 'oneoff') {
     exp.baseAmount = parsed;
   }
 
