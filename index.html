@@ -21,7 +21,6 @@
       color: #0f172a;
       -webkit-tap-highlight-color: transparent;
     }
-    /* Evita el auto-zoom molesto en iOS/Android al tocar inputs en móvil */
     @media (max-width: 640px) {
       input, select, button {
         font-size: 16px !important;
@@ -29,162 +28,214 @@
     }
   </style>
 </head>
-<body class="min-h-screen pb-12">
+<body class="min-h-screen">
 
-  <!-- CABECERA SUPERIOR EN DOS NIVELES LIMPIOS PARA QUE NADA SE CORTE EN MÓVIL -->
-  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3.5 sm:px-4 py-3 shadow-2xs">
-    <div class="max-w-3xl mx-auto space-y-2.5">
-
-      <!-- Fila 1: Título completo + Estado nube + Botón Ajustes -->
-      <div class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-            <span id="header-pct-badge">25%</span>
-          </div>
-          <div>
-            <div class="flex items-center gap-2">
-              <h1 class="font-bold text-slate-900 text-base sm:text-lg leading-tight">Cuenta Conjunta</h1>
-              <span id="sync-dot" title="Estado de sincronización" class="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>
-            </div>
-            <p id="sync-status-text" class="text-xs text-slate-500">Conectando...</p>
-          </div>
+  <!-- ===================================================================== -->
+  <!-- PANTALLA DE ACCESO PRIVADO (USUARIO Y CONTRASEÑA)                     -->
+  <!-- ===================================================================== -->
+  <div id="login-screen" class="min-h-screen flex items-center justify-center p-4 bg-slate-900">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 sm:p-8 space-y-6">
+      <div class="text-center space-y-2">
+        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-slate-900 text-white font-bold text-lg shadow-md">
+          25%
         </div>
-
-        <button type="button" onclick="openSettingsModal()" aria-label="Ajustes"
-          class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold transition text-xs flex items-center gap-1.5 shrink-0">
-          <span>⚙️</span>
-          <span>Ajustes</span>
-        </button>
+        <h1 class="text-xl font-bold text-slate-900">Cuenta Conjunta</h1>
+        <p class="text-xs text-slate-500">Introduce tu usuario y contraseña para acceder</p>
       </div>
 
-      <!-- Fila 2: Selector de Mes centrado y completo (ej. "‹ Noviembre de 2026 ›") -->
-      <div class="flex items-center justify-between bg-slate-100/90 rounded-xl border border-slate-200/80 p-1">
-        <button type="button" onclick="stepMonth(-1)" title="Mes anterior"
-          class="px-3.5 py-1.5 text-slate-700 hover:bg-white active:bg-slate-200 rounded-lg font-bold text-sm transition">
-          ‹
-        </button>
-
-        <!-- Etiqueta legible que nunca se corta + input month oculto/superpuesto al tocar -->
-        <label class="relative flex items-center justify-center gap-1.5 px-3 py-1 cursor-pointer select-none">
-          <span class="text-xs">📅</span>
-          <span id="month-display-text" class="font-bold text-slate-900 text-sm sm:text-base">Noviembre de 2026</span>
-          <input id="month-picker" type="month" onchange="changeMonth(this.value)"
-            class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-        </label>
-
-        <button type="button" onclick="stepMonth(1)" title="Mes siguiente"
-          class="px-3.5 py-1.5 text-slate-700 hover:bg-white active:bg-slate-200 rounded-lg font-bold text-sm transition">
-          ›
-        </button>
-      </div>
-
-    </div>
-  </header>
-
-  <main class="max-w-3xl mx-auto px-3 sm:px-4 pt-4 space-y-5">
-
-    <!-- AVISO DE APORTACIONES O COBROS PENDIENTES -->
-    <div id="reminder-banner" class="hidden rounded-2xl p-3.5 border text-xs sm:text-sm shadow-2xs"></div>
-
-    <!-- TARJETA RESUMEN DEL MES -->
-    <section class="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+      <form onsubmit="handleLogin(event)" class="space-y-4">
         <div>
-          <p id="month-human-label" class="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">Resumen de Noviembre 2026</p>
-          <div class="flex items-baseline gap-2 mt-0.5 flex-wrap">
-            <p id="global-transferred" class="text-2xl sm:text-3xl font-bold text-white">0,00 €</p>
-            <span id="global-expected" class="text-xs text-slate-400">aportados de 0,00 €</span>
-          </div>
+          <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Usuario</label>
+          <input id="login-username" type="text" required autocomplete="username" autocapitalize="none" placeholder="miguel o ana"
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 bg-slate-50" />
         </div>
-        <div class="text-right shrink-0">
-          <span id="global-status-pill" class="inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-400/20 text-amber-300">
-            Pendiente
-          </span>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Contraseña</label>
+          <input id="login-password" type="password" required autocomplete="current-password" placeholder="••••••••"
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 bg-slate-50" />
         </div>
-      </div>
 
-      <div class="grid grid-cols-2 gap-3">
-        <div class="bg-slate-800/80 rounded-xl p-3">
-          <p class="text-[11px] text-slate-400">Gastos comunes este mes</p>
-          <p id="global-expenses" class="text-base sm:text-lg font-bold text-rose-400 mt-0.5">-0,00 €</p>
-          <p id="global-expenses-count" class="text-[11px] text-slate-400 mt-0.5">0 recibos activos</p>
-        </div>
-        <div class="bg-slate-800/80 rounded-xl p-3">
-          <p class="text-[11px] text-slate-400">Colchón del mes</p>
-          <p id="global-net" class="text-base sm:text-lg font-bold text-emerald-400 mt-0.5">0,00 €</p>
-          <p id="global-net-sub" class="text-[11px] text-slate-400 mt-0.5">Aportación vs Gastos</p>
-        </div>
-      </div>
-    </section>
+        <div id="login-error" class="hidden text-xs font-medium text-rose-600 bg-rose-50 border border-rose-200 p-3 rounded-xl"></div>
 
-    <!-- BLOQUE 1: INGRESOS Y APORTACIÓN DE CADA UNO -->
-    <section class="space-y-3">
-      <div class="px-1">
-        <h2 class="font-bold text-slate-900 text-sm sm:text-base">1. Ingresos y Aportación (<span class="pct-label">25</span>%)</h2>
-        <p class="text-[11px] text-slate-500">Toca cualquier sueldo para editar su importe o registrar pagos parciales.</p>
-      </div>
+        <button id="login-submit-btn" type="submit"
+          class="w-full py-3.5 px-4 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold rounded-xl transition shadow-sm">
+          Entrar
+        </button>
+      </form>
+    </div>
+  </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div id="member-card-user1" class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col justify-between space-y-4"></div>
-        <div id="member-card-user2" class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col justify-between space-y-4"></div>
-      </div>
-    </section>
+  <!-- ===================================================================== -->
+  <!-- APLICACIÓN PRINCIPAL (SOLO VISIBLE TRAS INICIAR SESIÓN)               -->
+  <!-- ===================================================================== -->
+  <div id="app-screen" class="hidden pb-12">
 
-    <!-- BLOQUE 2: GASTOS COMUNES -->
-    <section class="space-y-3">
-      <div class="px-1">
-        <h2 class="font-bold text-slate-900 text-sm sm:text-base">2. Recibos y Gastos Comunes</h2>
-        <p class="text-[11px] text-slate-500">Modifica el importe del mes en los variables o marca si este mes toca agua/gas.</p>
-      </div>
+    <!-- CABECERA EN DOS NIVELES ADAPTADA A MÓVIL -->
+    <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3.5 sm:px-4 py-3 shadow-2xs">
+      <div class="max-w-3xl mx-auto space-y-2.5">
 
-      <div class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div id="expenses-list" class="divide-y divide-slate-100"></div>
-
-        <!-- Formulario añadir gasto adaptado a móvil -->
-        <form onsubmit="handleAddExpense(event)" class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/70 space-y-2.5">
-          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir nuevo recibo común</p>
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-            <input id="exp-name" type="text" required placeholder="Concepto (ej. Luz, Agua, Internet...)"
-              class="sm:col-span-5 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
-            <select id="exp-type"
-              class="sm:col-span-4 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-              <option value="fixed">📌 Fijo cada mes</option>
-              <option value="variable">⚡ Variable (ej. Luz)</option>
-              <option value="periodic">🗓️ Cada 2-3 meses (Agua/Gas)</option>
-            </select>
-            <div class="sm:col-span-3 flex gap-2">
-              <input id="exp-amount" type="number" step="0.01" min="0" required placeholder="Importe €"
-                class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
-              <button type="submit"
-                class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold text-sm rounded-xl transition shrink-0">
-                Añadir
-              </button>
+        <!-- Fila 1: Título + Usuario activo + Ajustes + Salir -->
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+              <span id="header-pct-badge">25%</span>
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <h1 class="font-bold text-slate-900 text-base sm:text-lg leading-tight">Cuenta Conjunta</h1>
+                <span id="sync-dot" title="Estado de sincronización" class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+              </div>
+              <p class="text-xs text-slate-500 truncate">
+                Sesión: <strong id="logged-user-badge" class="text-indigo-600"></strong> · <span id="sync-status-text">Sincronizado</span>
+              </p>
             </div>
           </div>
-        </form>
+
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="openSettingsModal()" aria-label="Ajustes"
+              class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold transition text-xs flex items-center gap-1">
+              <span>⚙️</span>
+              <span class="hidden sm:inline">Ajustes</span>
+            </button>
+            <button type="button" onclick="handleLogout()" title="Cerrar sesión"
+              class="px-2.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-500 font-semibold transition text-xs">
+              Salir
+            </button>
+          </div>
+        </div>
+
+        <!-- Fila 2: Selector de Mes centrado y completo -->
+        <div class="flex items-center justify-between bg-slate-100/90 rounded-xl border border-slate-200/80 p-1">
+          <button type="button" onclick="stepMonth(-1)" title="Mes anterior"
+            class="px-3.5 py-1.5 text-slate-700 hover:bg-white active:bg-slate-200 rounded-lg font-bold text-sm transition">
+            ‹
+          </button>
+
+          <label class="relative flex items-center justify-center gap-1.5 px-3 py-1 cursor-pointer select-none">
+            <span class="text-xs">📅</span>
+            <span id="month-display-text" class="font-bold text-slate-900 text-sm sm:text-base">Noviembre de 2026</span>
+            <input id="month-picker" type="month" onchange="changeMonth(this.value)"
+              class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+          </label>
+
+          <button type="button" onclick="stepMonth(1)" title="Mes siguiente"
+            class="px-3.5 py-1.5 text-slate-700 hover:bg-white active:bg-slate-200 rounded-lg font-bold text-sm transition">
+            ›
+          </button>
+        </div>
+
       </div>
-    </section>
+    </header>
 
-  </main>
+    <main class="max-w-3xl mx-auto px-3 sm:px-4 pt-4 space-y-5">
 
-  <!-- MODAL DE AJUSTES -->
+      <!-- AVISO DE APORTACIONES O COBROS PENDIENTES -->
+      <div id="reminder-banner" class="hidden rounded-2xl p-3.5 border text-xs sm:text-sm shadow-2xs"></div>
+
+      <!-- TARJETA RESUMEN DEL MES -->
+      <section class="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+          <div>
+            <p id="month-human-label" class="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">Resumen del mes</p>
+            <div class="flex items-baseline gap-2 mt-0.5 flex-wrap">
+              <p id="global-transferred" class="text-2xl sm:text-3xl font-bold text-white">0,00 €</p>
+              <span id="global-expected" class="text-xs text-slate-400">aportados de 0,00 €</span>
+            </div>
+          </div>
+          <div class="text-right shrink-0">
+            <span id="global-status-pill" class="inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300">
+              Sin datos
+            </span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-slate-800/80 rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">Gastos comunes este mes</p>
+            <p id="global-expenses" class="text-base sm:text-lg font-bold text-rose-400 mt-0.5">-0,00 €</p>
+            <p id="global-expenses-count" class="text-[11px] text-slate-400 mt-0.5">0 recibos activos</p>
+          </div>
+          <div class="bg-slate-800/80 rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">Colchón del mes</p>
+            <p id="global-net" class="text-base sm:text-lg font-bold text-emerald-400 mt-0.5">0,00 €</p>
+            <p id="global-net-sub" class="text-[11px] text-slate-400 mt-0.5">Aportación vs Gastos</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- BLOQUE 1: INGRESOS Y APORTACIÓN DE CADA UNO -->
+      <section class="space-y-3">
+        <div class="px-1">
+          <h2 class="font-bold text-slate-900 text-sm sm:text-base">1. Ingresos y Aportación (<span class="pct-label">25</span>%)</h2>
+          <p class="text-[11px] text-slate-500">Cada usuario puede editar únicamente sus propios ingresos y aportaciones.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div id="member-card-user1" class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col justify-between space-y-4"></div>
+          <div id="member-card-user2" class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col justify-between space-y-4"></div>
+        </div>
+      </section>
+
+      <!-- BLOQUE 2: GASTOS COMUNES -->
+      <section class="space-y-3">
+        <div class="px-1">
+          <h2 class="font-bold text-slate-900 text-sm sm:text-base">2. Recibos y Gastos Comunes</h2>
+          <p class="text-[11px] text-slate-500">Modifica el importe del mes en los variables o marca si este mes toca agua/gas.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <div id="expenses-list" class="divide-y divide-slate-100"></div>
+
+          <form onsubmit="handleAddExpense(event)" class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/70 space-y-2.5">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir nuevo recibo común</p>
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+              <input id="exp-name" type="text" required placeholder="Concepto (ej. Luz, Agua, Internet...)"
+                class="sm:col-span-5 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
+              <select id="exp-type"
+                class="sm:col-span-4 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+                <option value="fixed">📌 Fijo cada mes</option>
+                <option value="variable">⚡ Variable (ej. Luz)</option>
+                <option value="periodic">🗓️ Cada 2-3 meses (Agua/Gas)</option>
+              </select>
+              <div class="sm:col-span-3 flex gap-2">
+                <input id="exp-amount" type="number" step="0.01" min="0" required placeholder="Importe €"
+                  class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
+                <button type="submit"
+                  class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold text-sm rounded-xl transition shrink-0">
+                  Añadir
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL DE AJUSTES (NOMBRES, % Y CAMBIO DE CONTRASEÑA)                  -->
+  <!-- ===================================================================== -->
   <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-xl space-y-4 max-h-[92vh] overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-xl space-y-5 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 class="font-bold text-base text-slate-900">⚙️ Ajustes de la Cuenta</h3>
+        <h3 class="font-bold text-base text-slate-900">⚙️ Ajustes y Contraseña</h3>
         <button type="button" onclick="closeSettingsModal()" class="p-1 text-slate-400 hover:text-slate-600 text-lg">✕</button>
       </div>
 
+      <!-- Formulario 1: Nombres y % de aportación -->
       <form onsubmit="saveSettings(event)" class="space-y-4">
+        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Configuración general</p>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Persona 1</label>
-            <input id="set-user1-name" type="text" required placeholder="Ej. Miguel"
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Usuario 1 (miguel)</label>
+            <input id="set-user1-name" type="text" required
               class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Persona 2</label>
-            <input id="set-user2-name" type="text" required placeholder="Ej. Ana"
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Usuario 2 (ana)</label>
+            <input id="set-user2-name" type="text" required
               class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
           </div>
         </div>
@@ -198,41 +249,49 @@
           </div>
         </div>
 
-        <details class="pt-2 border-t border-slate-100">
-          <summary class="text-xs font-semibold text-slate-500 cursor-pointer select-none py-1">
-            Conexión avanzada con Supabase (Ya configurada)
-          </summary>
-          <div class="space-y-2.5 pt-2">
-            <div>
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Project URL</label>
-              <input id="set-sb-url" type="url"
-                class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono" />
-            </div>
-            <div>
-              <label class="block text-[11px] font-medium text-slate-500 mb-1">Publishable / Anon Key</label>
-              <input id="set-sb-key" type="text"
-                class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono" />
-            </div>
-          </div>
-        </details>
-
-        <div class="flex items-center justify-between pt-4 border-t border-slate-100 gap-2">
-          <button type="button" onclick="resetDemoData()"
-            class="text-xs text-rose-600 hover:underline py-2">
-            Restaurar datos base
+        <div class="flex justify-end">
+          <button type="submit"
+            class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">
+            Guardar ajustes generales
           </button>
-          <div class="flex gap-2">
-            <button type="button" onclick="closeSettingsModal()"
-              class="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600">
-              Cancelar
-            </button>
-            <button type="submit"
-              class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">
-              Guardar cambios
-            </button>
-          </div>
         </div>
       </form>
+
+      <!-- Formulario 2: Cambiar contraseña -->
+      <form onsubmit="handleChangePassword(event)" class="pt-4 border-t border-slate-100 space-y-3">
+        <p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Cambiar contraseña</p>
+
+        <!-- Selector de usuario objetivo (solo visible si has entrado como admin) -->
+        <div id="admin-target-user-box" class="hidden">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">¿A qué usuario quieres cambiarle la contraseña?</label>
+          <select id="pwd-target-user"
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-slate-50">
+            <option value="admin">admin (Mi usuario administrador)</option>
+            <option value="miguel">miguel</option>
+            <option value="ana">ana</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Nueva contraseña</label>
+          <input id="pwd-new" type="password" required placeholder="Escribe la nueva contraseña"
+            class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600" />
+        </div>
+
+        <div id="pwd-feedback" class="hidden text-xs p-2.5 rounded-xl"></div>
+
+        <div class="flex items-center justify-between pt-2">
+          <button type="button" onclick="closeSettingsModal()"
+            class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600">
+            Cerrar
+          </button>
+          <button type="submit"
+            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold">
+            Actualizar contraseña
+          </button>
+        </div>
+      </form>
+
     </div>
   </div>
 
