@@ -181,22 +181,23 @@
       <section class="space-y-3">
         <div class="px-1">
           <h2 class="font-bold text-slate-900 text-sm sm:text-base">2. Recibos y Gastos Comunes</h2>
-          <p class="text-[11px] text-slate-500">Modifica el importe del mes en los variables o marca si este mes toca agua/gas.</p>
+          <p class="text-[11px] text-slate-500">Fijos, variables (0 € hasta rellenar el mes), ocasionales o puntuales de este mes.</p>
         </div>
 
         <div class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
           <div id="expenses-list" class="divide-y divide-slate-100"></div>
 
           <form onsubmit="handleAddExpense(event)" class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/70 space-y-2.5">
-            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir nuevo recibo común</p>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir gasto común</p>
             <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-              <input id="exp-name" type="text" required placeholder="Concepto (ej. Luz, Agua, Internet...)"
+              <input id="exp-name" type="text" required placeholder="Concepto (ej. Luz, Agua, Compra super...)"
                 class="sm:col-span-5 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
               <select id="exp-type"
                 class="sm:col-span-4 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                <option value="fixed">📌 Fijo cada mes</option>
-                <option value="variable">⚡ Variable (ej. Luz)</option>
-                <option value="periodic">🗓️ Cada 2-3 meses (Agua/Gas)</option>
+                <option value="fixed">📌 Fijo</option>
+                <option value="variable">⚡ Variable</option>
+                <option value="periodic">🗓️ Ocasional</option>
+                <option value="oneoff">🛒 Puntual (solo este mes)</option>
               </select>
               <div class="sm:col-span-3 flex gap-2">
                 <input id="exp-amount" type="number" step="0.01" min="0" required placeholder="Importe €"
