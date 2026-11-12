@@ -41,7 +41,22 @@ function getEmptyState() {
   };
 }
 
-let state = getEmptyState();
+function loadCachedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return getEmptyState();
+    const parsed = JSON.parse(raw);
+    return {
+      ...getEmptyState(),
+      ...parsed,
+      selectedMonth: getCurrentYearMonth()
+    };
+  } catch (e) {
+    return getEmptyState();
+  }
+}
+
+let state = loadCachedState();
 let currentSession = loadSession(); // { username, password, role: 'user1' | 'user2' | 'admin' }
 let supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 let isSaving = false;
@@ -145,6 +160,7 @@ async function handleLogin(e) {
 
 function handleLogout() {
   saveSession(null);
+  localStorage.removeItem(STORAGE_KEY);
   state = getEmptyState();
   document.getElementById('app-screen').classList.add('hidden');
   document.getElementById('login-screen').classList.remove('hidden');
@@ -174,6 +190,7 @@ function applyRemoteState(remoteData) {
     monthlyExpenseOverrides: (remoteData && remoteData.monthlyExpenseOverrides) || {},
     selectedMonth: currentMonth
   };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 async function pullStateFromSupabase() {
@@ -1122,7 +1139,11 @@ async function checkAutomaticDay1And15Push() {
 document.addEventListener('DOMContentLoaded', () => {
   registerServiceWorker();
   if (currentSession) {
+    // Mostramos la app al instante (0 ms) sin parpadeo de login mientras sincroniza en segundo plano
+    showAppScreen();
     pullStateFromSupabase();
+  } else {
+    document.getElementById('login-screen').classList.remove('hidden');
   }
 });
 
