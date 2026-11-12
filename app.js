@@ -834,6 +834,8 @@ function openSettingsModal() {
 
   document.getElementById('pwd-new').value = '';
   document.getElementById('pwd-feedback').classList.add('hidden');
+  document.getElementById('push-feedback').classList.add('hidden');
+  renderPushStatusUI();
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -963,6 +965,52 @@ async function showSystemNotification(title, body) {
   }
 }
 
+function isPushEnabled() {
+  return (
+    'Notification' in window &&
+    Notification.permission === 'granted' &&
+    localStorage.getItem('cuenta_conjunta_push_enabled') === 'true'
+  );
+}
+
+function renderPushStatusUI() {
+  const badge = document.getElementById('push-status-badge');
+  const toggleBtn = document.getElementById('push-toggle-btn');
+  const testBtn = document.getElementById('push-test-btn');
+  if (!badge || !toggleBtn) return;
+
+  if (isPushEnabled()) {
+    badge.textContent = '🟢 Activadas en este móvil';
+    badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800';
+    toggleBtn.textContent = '🔕 Desactivar notificaciones';
+    toggleBtn.className = 'flex-1 py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition';
+    if (testBtn) testBtn.classList.remove('hidden');
+  } else {
+    badge.textContent = '⚪ Desactivadas';
+    badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600';
+    toggleBtn.textContent = '🔔 Activar notificaciones';
+    toggleBtn.className = 'flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition';
+    if (testBtn) testBtn.classList.add('hidden');
+  }
+}
+
+async function togglePushNotifications() {
+  const feedback = document.getElementById('push-feedback');
+  feedback.classList.add('hidden');
+
+  // Si ya están activadas, las desactivamos con un toque
+  if (isPushEnabled()) {
+    localStorage.setItem('cuenta_conjunta_push_enabled', 'false');
+    renderPushStatusUI();
+    feedback.textContent = '🔕 Notificaciones desactivadas en este teléfono.';
+    feedback.className = 'text-xs p-2.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200';
+    feedback.classList.remove('hidden');
+    return;
+  }
+
+  await enablePushNotifications();
+}
+
 async function enablePushNotifications() {
   const feedback = document.getElementById('push-feedback');
   feedback.classList.add('hidden');
@@ -982,6 +1030,7 @@ async function enablePushNotifications() {
   const permission = await Notification.requestPermission();
   if (permission === 'granted') {
     localStorage.setItem('cuenta_conjunta_push_enabled', 'true');
+    renderPushStatusUI();
     feedback.textContent = '✅ Notificaciones activadas en este teléfono para los días 1 y 15.';
     feedback.className = 'text-xs p-2.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200';
     feedback.classList.remove('hidden');
@@ -991,7 +1040,8 @@ async function enablePushNotifications() {
       'Te avisaremos el día 1 y el día 15 si queda alguna aportación pendiente.'
     );
   } else {
-    feedback.textContent = 'Permiso denegado. Revisa los ajustes de notificaciones del navegador.';
+    renderPushStatusUI();
+    feedback.textContent = 'Permiso bloqueado en el navegador. Actívalo en el candado de la barra de direcciones.';
     feedback.className = 'text-xs p-2.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200';
     feedback.classList.remove('hidden');
   }
