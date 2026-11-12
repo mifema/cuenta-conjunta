@@ -392,24 +392,46 @@ function renderApp() {
   renderExpensesList();
 }
 
+function getMonthPendingDetails(s1, s2) {
+  const missingIncomes = [];
+  const missingContributions = [];
+
+  if (s1.totalIncome <= 0) {
+    missingIncomes.push(state.config.user1Name);
+  } else if (s1.remainingTotal > 0.01) {
+    missingContributions.push(
+      `${state.config.user1Name} (${formatEUR(s1.remainingTotal)}${s1.pendingIncome > 0 ? ' · cobro pendiente' : ''})`
+    );
+  }
+
+  if (s2.totalIncome <= 0) {
+    missingIncomes.push(state.config.user2Name);
+  } else if (s2.remainingTotal > 0.01) {
+    missingContributions.push(
+      `${state.config.user2Name} (${formatEUR(s2.remainingTotal)}${s2.pendingIncome > 0 ? ' · cobro pendiente' : ''})`
+    );
+  }
+
+  const hasPending = missingIncomes.length > 0 || missingContributions.length > 0;
+  const parts = [];
+  if (missingIncomes.length > 0) {
+    parts.push(`Falta añadir ingresos de ${missingIncomes.join(' y ')}`);
+  }
+  if (missingContributions.length > 0) {
+    parts.push(`Falta aportar: ${missingContributions.join(' y ')}`);
+  }
+
+  return {
+    hasPending,
+    summaryText: parts.join(' · ')
+  };
+}
+
 function renderReminderBanner(s1, s2) {
   const banner = document.getElementById('reminder-banner');
-  const pendingMessages = [];
+  const details = getMonthPendingDetails(s1, s2);
 
-  if (s1.remainingTotal > 0.01) {
-    pendingMessages.push(
-      `<strong>${escapeHtml(state.config.user1Name)}</strong> (${formatEUR(s1.remainingTotal)}` +
-        (s1.pendingIncome > 0 ? ` · cobro pendiente` : '') + `)`
-    );
-  }
-  if (s2.remainingTotal > 0.01) {
-    pendingMessages.push(
-      `<strong>${escapeHtml(state.config.user2Name)}</strong> (${formatEUR(s2.remainingTotal)}` +
-        (s2.pendingIncome > 0 ? ` · cobro pendiente` : '') + `)`
-    );
-  }
-
-  if (pendingMessages.length === 0) {
+  if (!details.hasPending) {
     banner.classList.add('hidden');
     return;
   }
@@ -418,8 +440,8 @@ function renderReminderBanner(s1, s2) {
   banner.innerHTML = `
     <span class="text-base shrink-0">🔔</span>
     <div>
-      <span class="font-semibold">Pendiente de aportar a la conjunta:</span>
-      <span class="ml-1">${pendingMessages.join(' y ')}</span>
+      <span class="font-semibold">Pendiente este mes:</span>
+      <span class="ml-1">${escapeHtml(details.summaryText)}</span>
     </div>
   `;
   banner.classList.remove('hidden');
@@ -1057,12 +1079,11 @@ async function sendTestNotification() {
   const ym = getCurrentYearMonth();
   const s1 = getMemberStats('user1', ym);
   const s2 = getMemberStats('user2', ym);
-  const totalMissing = s1.remainingTotal + s2.remainingTotal;
+  const details = getMonthPendingDetails(s1, s2);
 
-  const bodyText =
-    totalMissing > 0.01
-      ? `Recordatorio mensual: aún faltan ${formatEUR(totalMissing)} por aportar a la cuenta conjunta.`
-      : `¡Todo al día! Ambos habéis completado vuestra aportación de este mes.`;
+  const bodyText = details.hasPending
+    ? details.summaryText
+    : `¡Todo al día! Ambos habéis anotado vuestros ingresos y completado la aportación de este mes.`;
 
   await showSystemNotification('🔔 Cuenta Conjunta', bodyText);
   feedback.textContent = '🔔 Notificación enviada a tu teléfono.';
@@ -1070,7 +1091,7 @@ async function sendTestNotification() {
   feedback.classList.remove('hidden');
 }
 
-// Comprueba automáticamente el día 1 (del 1 al 5) y el día 15 (del 15 al 20) si falta aportar
+// Comprueba automáticamente el día 1 (del 1 al 5) y el día 15 (del 15 al 20) si falta añadir ingresos o aportar
 async function checkAutomaticDay1And15Push() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (localStorage.getItem('cuenta_conjunta_push_enabled') !== 'true') return;
@@ -1089,13 +1110,12 @@ async function checkAutomaticDay1And15Push() {
 
   const s1 = getMemberStats('user1', ym);
   const s2 = getMemberStats('user2', ym);
-  const totalMissing = s1.remainingTotal + s2.remainingTotal;
+  const details = getMonthPendingDetails(s1, s2);
 
-  if (totalMissing > 0.01) {
+  if (details.hasPending) {
     localStorage.setItem(notifiedKey, 'true');
     const title = period === 'day1' ? '📅 Día 1 · Cuenta Conjunta' : '🔔 Día 15 · Cuenta Conjunta';
-    const body = `Recordatorio: faltan ${formatEUR(totalMissing)} por aportar a la cuenta conjunta este mes.`;
-    await showSystemNotification(title, body);
+    await showSystemNotification(title, details.summaryText);
   }
 }
 
