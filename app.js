@@ -5,14 +5,24 @@
 const STORAGE_KEY = 'cuenta_conjunta_v2';
 const SB_CREDS_KEY = 'cuenta_conjunta_sb_creds';
 
-// Si quieres que la web ya tenga las claves conectadas por defecto en todos los móviles
-// sin pegarlas en Ajustes, ponlas aquí entre las comillas:
 const DEFAULT_SUPABASE_URL = 'https://kabhcziezseedckgpgwu.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_Wn-0AnL3OIEFAzuMTe9aFA_J1AaRnBT';
+
+const MONTH_NAMES_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
 
 function getCurrentYearMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatYearMonthES(ym) {
+  if (!ym || !ym.includes('-')) return 'Resumen del mes';
+  const [y, m] = ym.split('-');
+  const idx = parseInt(m, 10) - 1;
+  return `${MONTH_NAMES_ES[idx] || m} ${y}`;
 }
 
 function getDefaultState() {
@@ -50,12 +60,21 @@ function getDefaultState() {
 let state = loadLocalState();
 let sbCreds = loadSbCreds();
 let supabaseClient = null;
+let isSaving = false;
 
 function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return getDefaultState();
-    return { ...getDefaultState(), ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...getDefaultState(),
+      ...parsed,
+      config: {
+        ...getDefaultState().config,
+        ...(parsed.config || {})
+      }
+    };
   } catch (e) {
     return getDefaultState();
   }
@@ -80,32 +99,40 @@ function updateSyncIndicator(status, text) {
   if (!dot || !label) return;
 
   if (status === 'cloud') {
-    dot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
-    label.textContent = text || 'Sincronizado en Supabase';
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0';
+    label.textContent = text || 'Sincronizado en la nube';
   } else if (status === 'syncing') {
-    dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0';
-    label.textContent = text || 'Guardando en la nube...';
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shrink-0';
+    label.textContent = text || 'Guardando cambios...';
   } else if (status === 'error') {
-    dot.className = 'w-2 h-2 rounded-full bg-rose-500 shrink-0';
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0';
     label.textContent = text || 'Error de conexión con Supabase';
   } else {
-    dot.className = 'w-2 h-2 rounded-full bg-amber-400 shrink-0';
-    label.textContent = text || 'Modo local · Conecta Supabase en ⚙️';
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0';
+    label.textContent = text || 'Guardado en este dispositivo';
   }
 }
 
-async function initSupabaseAndSync() {
+function ensureSupabaseClient() {
   if (!sbCreds.url || !sbCreds.key || !window.supabase) {
     supabaseClient = null;
     updateSyncIndicator('local');
-    return;
+    return null;
   }
+  if (!supabaseClient) {
+    supabaseClient = window.supabase.createClient(sbCreds.url, sbCreds.key);
+  }
+  return supabaseClient;
+}
+
+// Descarga el estado más reciente desde Supabase al abrir la app
+async function pullStateFromSupabase() {
+  const client = ensureSupabaseClient();
+  if (!client || isSaving) return;
 
   try {
-    supabaseClient = window.supabase.createClient(sbCreds.url, sbCreds.key);
-    updateSyncIndicator('syncing', 'Conectando con Supabase...');
-
-    const { data, error } = await supabaseClient
+    updateSyncIndicator('syncing', 'Sincronizando...');
+    const { data, error } = await client
       .from('couple_state')
       .select('data')
       .eq('id', 1)
@@ -113,18 +140,25 @@ async function initSupabaseAndSync() {
 
     if (error) {
       console.warn('Supabase aviso:', error.message);
-      updateSyncIndicator('error', 'Falta crear tabla en Supabase');
+      updateSyncIndicator('error', 'Error al leer de Supabase');
       return;
     }
 
     if (data && data.data && Object.keys(data.data).length > 0) {
       const currentMonth = state.selectedMonth;
-      state = { ...getDefaultState(), ...data.data, selectedMonth: currentMonth };
+      state = {
+        ...getDefaultState(),
+        ...data.data,
+        config: {
+          ...getDefaultState().config,
+          ...(data.data.config || {})
+        },
+        selectedMonth: currentMonth
+      };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       renderApp();
       updateSyncIndicator('cloud', 'Sincronizado en la nube');
     } else {
-      // Subir nuestro estado inicial a la nube por primera vez
       await pushStateToSupabase();
     }
   } catch (err) {
@@ -133,30 +167,36 @@ async function initSupabaseAndSync() {
   }
 }
 
+// Sube nuestro estado actual a Supabase inmediatamente
 async function pushStateToSupabase() {
-  if (!supabaseClient) return;
+  const client = ensureSupabaseClient();
+  if (!client) return;
+
   try {
-    updateSyncIndicator('syncing', 'Guardando...');
-    const payload = { ...state };
-    const { error } = await supabaseClient
+    isSaving = true;
+    updateSyncIndicator('syncing', 'Guardando en la nube...');
+    const payload = JSON.parse(JSON.stringify(state));
+    const { error } = await client
       .from('couple_state')
       .upsert({ id: 1, data: payload, updated_at: new Date().toISOString() });
 
     if (error) {
       console.error(error);
-      updateSyncIndicator('error', 'Error al guardar en Supabase');
+      updateSyncIndicator('error', 'Error al guardar en la nube');
     } else {
-      updateSyncIndicator('cloud', 'Sincronizado en la nube');
+      updateSyncIndicator('cloud', 'Cambios guardados en la nube');
     }
   } catch (err) {
     console.error(err);
     updateSyncIndicator('error');
+  } finally {
+    isSaving = false;
   }
 }
 
-function saveState() {
+async function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  pushStateToSupabase();
+  await pushStateToSupabase();
 }
 
 function formatEUR(val) {
@@ -184,10 +224,10 @@ function getMemberStats(userKey, month) {
     }
   });
 
-  const targetTotalShare = totalIncome * pct;
-  const targetCollectedShare = collectedIncome * pct;
+  const targetTotalShare = Math.round(totalIncome * pct * 100) / 100;
+  const targetCollectedShare = Math.round(collectedIncome * pct * 100) / 100;
   const alreadyContributed = Number(state.contributions[`${month}_${userKey}`]) || 0;
-  const remainingTotal = Math.max(0, targetTotalShare - alreadyContributed);
+  const remainingTotal = Math.max(0, Math.round((targetTotalShare - alreadyContributed) * 100) / 100);
 
   return {
     incomes: userIncomes,
@@ -211,7 +251,7 @@ function getExpenseForMonth(exp, month) {
 }
 
 // ============================================================================
-// RENDERIZADO PRINCIPAL (DISEÑO MÓVIL Y ESCRITORIO)
+// RENDERIZADO PRINCIPAL
 // ============================================================================
 function renderApp() {
   const pct = state.config.jointPercentage;
@@ -220,6 +260,7 @@ function renderApp() {
   document.getElementById('header-pct-badge').textContent = `${pct}%`;
   document.querySelectorAll('.pct-label').forEach(el => (el.textContent = pct));
   document.getElementById('month-picker').value = month;
+  document.getElementById('month-human-label').textContent = `Resumen de ${formatYearMonthES(month)}`;
 
   const s1 = getMemberStats('user1', month);
   const s2 = getMemberStats('user2', month);
@@ -240,7 +281,7 @@ function renderApp() {
   const netResult = totalExpected - totalMonthExpenses;
 
   document.getElementById('global-transferred').textContent = formatEUR(totalTransferred);
-  document.getElementById('global-expected').textContent = `de ${formatEUR(totalExpected)}`;
+  document.getElementById('global-expected').textContent = `aportados de ${formatEUR(totalExpected)}`;
 
   const pill = document.getElementById('global-status-pill');
   if (totalMissing <= 0.01 && totalExpected > 0) {
@@ -252,14 +293,14 @@ function renderApp() {
   }
 
   document.getElementById('global-expenses').textContent = `-${formatEUR(totalMonthExpenses)}`;
-  document.getElementById('global-expenses-count').textContent = `${activeExpensesCount} recibos este mes`;
+  document.getElementById('global-expenses-count').textContent = `${activeExpensesCount} recibos activos`;
 
   const netEl = document.getElementById('global-net');
   const netSub = document.getElementById('global-net-sub');
   netEl.textContent = formatEUR(netResult);
   if (netResult >= 0) {
     netEl.className = 'text-base sm:text-lg font-bold text-emerald-400 mt-0.5';
-    netSub.textContent = 'Sobra de colchón';
+    netSub.textContent = 'Colchón previsto este mes';
   } else {
     netEl.className = 'text-base sm:text-lg font-bold text-rose-400 mt-0.5';
     netSub.textContent = 'Falta para cubrir recibos';
@@ -277,13 +318,14 @@ function renderReminderBanner(s1, s2) {
 
   if (s1.remainingTotal > 0.01) {
     pendingMessages.push(
-      `<strong>${escapeHtml(state.config.user1Name)}</strong> (${formatEUR(s1.remainingTotal)})`
+      `<strong>${escapeHtml(state.config.user1Name)}</strong> (${formatEUR(s1.remainingTotal)}` +
+        (s1.pendingIncome > 0 ? ` · 1 cobro pendiente` : '') + `)`
     );
   }
   if (s2.remainingTotal > 0.01) {
     pendingMessages.push(
       `<strong>${escapeHtml(state.config.user2Name)}</strong> (${formatEUR(s2.remainingTotal)}` +
-        (s2.pendingIncome > 0 ? ` · 1 sueldo pendiente` : '') + `)`
+        (s2.pendingIncome > 0 ? ` · 1 cobro pendiente` : '') + `)`
     );
   }
 
@@ -296,7 +338,7 @@ function renderReminderBanner(s1, s2) {
   banner.innerHTML = `
     <span class="text-base shrink-0">🔔</span>
     <div>
-      <span class="font-semibold">Pendiente de aportar:</span>
+      <span class="font-semibold">Pendiente de aportar a la conjunta:</span>
       <span class="ml-1">${pendingMessages.join(' y ')}</span>
     </div>
   `;
@@ -313,19 +355,19 @@ function renderMemberCard(userKey, name, stats) {
 
   container.innerHTML = `
     <div class="space-y-3.5">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
-        <div>
-          <h3 class="font-bold text-slate-900 text-base">👤 ${escapeHtml(name)}</h3>
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
+        <div class="min-w-0">
+          <h3 class="font-bold text-slate-900 text-base truncate">👤 ${escapeHtml(name)}</h3>
           <p class="text-xs text-slate-500">Ingresos mes: <strong class="text-slate-700">${formatEUR(stats.totalIncome)}</strong></p>
         </div>
         ${
           isComplete
-            ? `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">✅ Al día</span>`
-            : `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Faltan ${formatEUR(stats.remainingTotal)}</span>`
+            ? `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Al día</span>`
+            : `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shrink-0">Faltan ${formatEUR(stats.remainingTotal)}</span>`
         }
       </div>
 
-      <!-- Pagadores -->
+      <!-- Pagadores / Sueldos -->
       <div class="space-y-2">
         ${
           stats.incomes.length === 0
@@ -333,10 +375,10 @@ function renderMemberCard(userKey, name, stats) {
             : stats.incomes
                 .map(
                   inc => `
-                <div class="flex items-center justify-between gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 text-xs">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <button onclick="toggleIncomeCollected('${inc.id}')"
-                      class="px-2 py-1 rounded-lg font-medium shrink-0 transition ${
+                <div class="flex items-center justify-between gap-2 bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-100 text-xs">
+                  <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                    <button type="button" onclick="toggleIncomeCollected('${inc.id}')"
+                      class="px-2 py-1 rounded-lg font-semibold shrink-0 transition ${
                         inc.collected
                           ? 'bg-emerald-100 text-emerald-800 active:bg-emerald-200'
                           : 'bg-amber-100 text-amber-800 active:bg-amber-200'
@@ -345,9 +387,12 @@ function renderMemberCard(userKey, name, stats) {
                     </button>
                     <span class="font-medium text-slate-800 truncate">${escapeHtml(inc.source)}</span>
                   </div>
-                  <div class="flex items-center gap-2 shrink-0">
-                    <span class="font-bold text-slate-900">${formatEUR(inc.amount)}</span>
-                    <button onclick="deleteIncome('${inc.id}')" class="p-1 text-slate-300 hover:text-rose-600">✕</button>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <input type="number" step="0.01" min="0" value="${inc.amount}"
+                      onchange="updateIncomeAmount('${inc.id}', this.value)"
+                      class="w-20 text-right font-bold text-slate-900 bg-white px-2 py-1 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900" />
+                    <span class="text-slate-500 font-semibold">€</span>
+                    <button type="button" onclick="deleteIncome('${inc.id}')" class="p-1 text-slate-300 hover:text-rose-600">✕</button>
                   </div>
                 </div>
               `
@@ -356,7 +401,7 @@ function renderMemberCard(userKey, name, stats) {
         }
 
         <form onsubmit="handleAddIncome(event, '${userKey}')" class="flex gap-1.5 pt-1">
-          <input id="inc-src-${userKey}" type="text" required placeholder="Añadir sueldo..."
+          <input id="inc-src-${userKey}" type="text" required placeholder="Añadir pagador / extra..."
             class="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
           <input id="inc-amt-${userKey}" type="number" step="0.01" min="0" required placeholder="€"
             class="w-20 px-2.5 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
@@ -371,8 +416,8 @@ function renderMemberCard(userKey, name, stats) {
     <!-- Aportación parcial / total -->
     <div class="pt-3 border-t border-slate-100 space-y-2.5">
       <div class="flex items-center justify-between text-xs">
-        <span class="text-slate-500">Toca (${pct}%): <strong class="text-slate-900">${formatEUR(stats.targetTotalShare)}</strong></span>
-        <span class="font-semibold text-indigo-600">Aportado: ${formatEUR(stats.alreadyContributed)}</span>
+        <span class="text-slate-500">Le toca (${pct}%): <strong class="text-slate-900">${formatEUR(stats.targetTotalShare)}</strong></span>
+        <span class="font-semibold text-indigo-600">Ya aportado: ${formatEUR(stats.alreadyContributed)}</span>
       </div>
 
       <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -382,15 +427,15 @@ function renderMemberCard(userKey, name, stats) {
       ${
         stats.pendingIncome > 0
           ? `<p class="text-[11px] text-amber-700">
-              💡 De lo ya cobrado le toca aportar <strong>${formatEUR(stats.targetCollectedShare)}</strong>.
+              💡 De lo ya cobrado hoy le toca aportar <strong>${formatEUR(stats.targetCollectedShare)}</strong>.
              </p>`
           : ''
       }
 
-      <div class="flex items-center gap-1.5 pt-1">
-        <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1">
-          <input id="partial-input-${userKey}" type="number" step="0.01" placeholder="Aportar €..."
-            class="w-full min-w-[90px] px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600" />
+      <div class="flex flex-wrap items-center gap-1.5 pt-1">
+        <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1 min-w-[160px]">
+          <input id="partial-input-${userKey}" type="number" step="0.01" placeholder="Aportar € parcial..."
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600" />
           <button type="submit"
             class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl text-xs transition shrink-0">
             + Sumar
@@ -399,14 +444,20 @@ function renderMemberCard(userKey, name, stats) {
 
         ${
           !isComplete && stats.targetTotalShare > 0
-            ? `<button onclick="completeContribution('${userKey}', ${stats.targetTotalShare})"
+            ? `<button type="button" onclick="completeContribution('${userKey}', ${stats.targetTotalShare})"
                 class="px-3 py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold rounded-xl text-xs transition shrink-0">
                 Completar
                </button>`
-            : `<button onclick="resetContribution('${userKey}')"
+            : ''
+        }
+
+        ${
+          stats.alreadyContributed > 0
+            ? `<button type="button" onclick="resetContribution('${userKey}')" title="Poner aportación a 0 €"
                 class="px-2.5 py-2 border border-slate-200 hover:bg-slate-100 text-slate-500 rounded-xl text-xs transition shrink-0">
                 0 €
                </button>`
+            : ''
         }
       </div>
     </div>
@@ -448,7 +499,7 @@ function renderExpensesList() {
           <div class="flex items-center gap-2 shrink-0">
             ${
               exp.type === 'periodic'
-                ? `<button onclick="toggleExpenseActive('${exp.id}')"
+                ? `<button type="button" onclick="toggleExpenseActive('${exp.id}')"
                     class="px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
                       mExp.active
                         ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
@@ -467,10 +518,10 @@ function renderExpensesList() {
                       class="w-20 text-right font-bold text-slate-900 text-sm px-2 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900" />
                     <span class="text-xs font-semibold text-slate-500">€</span>
                    </div>`
-                : `<span class="text-xs font-medium text-slate-400 px-1">0 €</span>`
+                : `<span class="text-xs font-medium text-slate-400 px-1">0,00 €</span>`
             }
 
-            <button onclick="deleteExpense('${exp.id}')" title="Borrar gasto"
+            <button type="button" onclick="deleteExpense('${exp.id}')" title="Borrar gasto"
               class="p-1 text-slate-300 hover:text-rose-600 text-sm">
               ✕
             </button>
@@ -484,6 +535,13 @@ function renderExpensesList() {
 // ============================================================================
 // ACCIONES DEL USUARIO
 // ============================================================================
+function stepMonth(delta) {
+  const [y, m] = state.selectedMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  const newYm = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  changeMonth(newYm);
+}
+
 function changeMonth(newMonth) {
   if (!newMonth) return;
   const existingInNewMonth = state.incomes.filter(i => i.month === newMonth);
@@ -501,8 +559,8 @@ function changeMonth(newMonth) {
     });
   }
   state.selectedMonth = newMonth;
-  saveState();
   renderApp();
+  saveState();
 }
 
 function handleAddIncome(e, userKey) {
@@ -521,22 +579,30 @@ function handleAddIncome(e, userKey) {
 
   srcInput.value = '';
   amtInput.value = '';
-  saveState();
   renderApp();
+  saveState();
+}
+
+function updateIncomeAmount(id, newVal) {
+  const item = state.incomes.find(i => i.id === id);
+  if (!item) return;
+  item.amount = parseFloat(newVal) || 0;
+  renderApp();
+  saveState();
 }
 
 function toggleIncomeCollected(id) {
   const item = state.incomes.find(i => i.id === id);
   if (!item) return;
   item.collected = !item.collected;
-  saveState();
   renderApp();
+  saveState();
 }
 
 function deleteIncome(id) {
   state.incomes = state.incomes.filter(i => i.id !== id);
-  saveState();
   renderApp();
+  saveState();
 }
 
 function handleAddPartialContribution(e, userKey) {
@@ -550,22 +616,22 @@ function handleAddPartialContribution(e, userKey) {
   state.contributions[key] = Math.round((current + amountToAdd) * 100) / 100;
 
   input.value = '';
-  saveState();
   renderApp();
+  saveState();
 }
 
 function completeContribution(userKey, targetAmount) {
   const key = `${state.selectedMonth}_${userKey}`;
   state.contributions[key] = Math.round(targetAmount * 100) / 100;
-  saveState();
   renderApp();
+  saveState();
 }
 
 function resetContribution(userKey) {
   const key = `${state.selectedMonth}_${userKey}`;
   state.contributions[key] = 0;
-  saveState();
   renderApp();
+  saveState();
 }
 
 function handleAddExpense(e) {
@@ -591,8 +657,8 @@ function handleAddExpense(e) {
 
   nameEl.value = '';
   amtEl.value = '';
-  saveState();
   renderApp();
+  saveState();
 }
 
 function toggleExpenseActive(expId) {
@@ -604,8 +670,8 @@ function toggleExpenseActive(expId) {
     active: !current.active,
     amount: current.amount
   };
-  saveState();
   renderApp();
+  saveState();
 }
 
 function updateExpenseMonthAmount(expId, newVal) {
@@ -623,14 +689,14 @@ function updateExpenseMonthAmount(expId, newVal) {
     active: current.active,
     amount: parsed
   };
-  saveState();
   renderApp();
+  saveState();
 }
 
 function deleteExpense(expId) {
   state.expenses = state.expenses.filter(x => x.id !== expId);
-  saveState();
   renderApp();
+  saveState();
 }
 
 function openSettingsModal() {
@@ -652,24 +718,28 @@ async function saveSettings(e) {
   state.config.user2Name = document.getElementById('set-user2-name').value.trim() || 'Persona 2';
   state.config.jointPercentage = Number(document.getElementById('set-joint-pct').value) || 25;
 
-  sbCreds = {
-    url: document.getElementById('set-sb-url').value.trim(),
-    key: document.getElementById('set-sb-key').value.trim()
-  };
+  const newUrl = document.getElementById('set-sb-url').value.trim() || DEFAULT_SUPABASE_URL;
+  const newKey = document.getElementById('set-sb-key').value.trim() || DEFAULT_SUPABASE_ANON_KEY;
+  const credsChanged = newUrl !== sbCreds.url || newKey !== sbCreds.key;
+
+  sbCreds = { url: newUrl, key: newKey };
   localStorage.setItem(SB_CREDS_KEY, JSON.stringify(sbCreds));
+  if (credsChanged) {
+    supabaseClient = null;
+    ensureSupabaseClient();
+  }
 
   closeSettingsModal();
   renderApp();
-  await initSupabaseAndSync();
-  saveState();
+  await saveState();
 }
 
-function resetDemoData() {
+async function resetDemoData() {
   localStorage.removeItem(STORAGE_KEY);
   state = getDefaultState();
-  saveState();
   closeSettingsModal();
   renderApp();
+  await saveState();
 }
 
 function escapeHtml(str) {
@@ -682,5 +752,12 @@ function escapeHtml(str) {
 
 document.addEventListener('DOMContentLoaded', () => {
   renderApp();
-  initSupabaseAndSync();
+  pullStateFromSupabase();
+});
+
+// Al volver a abrir la pestaña en el móvil, sincroniza con la nube
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    pullStateFromSupabase();
+  }
 });
