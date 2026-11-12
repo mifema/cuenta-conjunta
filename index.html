@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -20,7 +21,7 @@
       color: #0f172a;
       -webkit-tap-highlight-color: transparent;
     }
-    /* Evita el auto-zoom molesto en iOS al tocar inputs en móvil */
+    /* Evita el auto-zoom molesto en iOS/Android al tocar inputs en móvil */
     @media (max-width: 640px) {
       input, select, button {
         font-size: 16px !important;
@@ -28,10 +29,10 @@
     }
   </style>
 </head>
-<body class="min-h-screen pb-10">
+<body class="min-h-screen pb-12">
 
-  <!-- BARRA SUPERIOR STICKY ESTILO APP MÓVIL -->
-  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 shadow-2xs">
+  <!-- BARRA SUPERIOR FIJA (STICKY) PENSADA PARA MÓVIL -->
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3 sm:px-4 py-3 shadow-2xs">
     <div class="max-w-3xl mx-auto flex items-center justify-between gap-2">
       <div class="flex items-center gap-2.5 min-w-0">
         <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
@@ -40,18 +41,29 @@
         <div class="truncate">
           <div class="flex items-center gap-1.5">
             <h1 class="font-bold text-slate-900 text-base leading-tight truncate">Cuenta Conjunta</h1>
-            <span id="sync-dot" title="Estado de conexión" class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+            <span id="sync-dot" title="Estado de sincronización" class="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>
           </div>
-          <p id="sync-status-text" class="text-[11px] text-slate-500 truncate">Guardado en este dispositivo</p>
+          <p id="sync-status-text" class="text-[11px] text-slate-500 truncate">Conectando...</p>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 shrink-0">
-        <input id="month-picker" type="month" onchange="changeMonth(this.value)"
-          class="bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900" />
+      <!-- Selector de mes cómodo en móvil + Botón Ajustes -->
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div class="flex items-center bg-slate-100 rounded-xl border border-slate-200 p-0.5">
+          <button type="button" onclick="stepMonth(-1)" title="Mes anterior"
+            class="px-2 py-1 text-slate-600 hover:text-slate-900 active:bg-slate-200 rounded-lg font-bold text-xs">
+            ‹
+          </button>
+          <input id="month-picker" type="month" onchange="changeMonth(this.value)"
+            class="bg-transparent px-1.5 py-1 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none" />
+          <button type="button" onclick="stepMonth(1)" title="Mes siguiente"
+            class="px-2 py-1 text-slate-600 hover:text-slate-900 active:bg-slate-200 rounded-lg font-bold text-xs">
+            ›
+          </button>
+        </div>
 
-        <button onclick="openSettingsModal()" aria-label="Ajustes"
-          class="p-2 sm:px-3 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-medium transition text-xs flex items-center gap-1">
+        <button type="button" onclick="openSettingsModal()" aria-label="Ajustes"
+          class="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-semibold transition text-xs flex items-center gap-1.5 shadow-2xs">
           <span>⚙️</span>
           <span class="hidden sm:inline">Ajustes</span>
         </button>
@@ -61,34 +73,34 @@
 
   <main class="max-w-3xl mx-auto px-3 sm:px-4 pt-4 space-y-5">
 
-    <!-- AVISO DE PENDIENTES (DÍA 1 / DÍA 15) -->
+    <!-- AVISO DE APORTACIONES O COBROS PENDIENTES -->
     <div id="reminder-banner" class="hidden rounded-2xl p-3.5 border text-xs sm:text-sm shadow-2xs"></div>
 
-    <!-- TARJETA RESUMEN DEL MES (OPTIMIZADA PARA MÓVIL) -->
+    <!-- TARJETA RESUMEN DEL MES -->
     <section class="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
         <div>
-          <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Ya aportado este mes</p>
-          <div class="flex items-baseline gap-2 mt-0.5">
+          <p id="month-human-label" class="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">Resumen del mes</p>
+          <div class="flex items-baseline gap-2 mt-0.5 flex-wrap">
             <p id="global-transferred" class="text-2xl sm:text-3xl font-bold text-white">0,00 €</p>
-            <span id="global-expected" class="text-xs text-slate-400">de 0,00 €</span>
+            <span id="global-expected" class="text-xs text-slate-400">aportados de 0,00 €</span>
           </div>
         </div>
-        <div class="text-right">
+        <div class="text-right shrink-0">
           <span id="global-status-pill" class="inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-400/20 text-amber-300">
             Pendiente
           </span>
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-3 pt-1">
+      <div class="grid grid-cols-2 gap-3">
         <div class="bg-slate-800/80 rounded-xl p-3">
-          <p class="text-[11px] text-slate-400">Gastos de este mes</p>
+          <p class="text-[11px] text-slate-400">Gastos comunes este mes</p>
           <p id="global-expenses" class="text-base sm:text-lg font-bold text-rose-400 mt-0.5">-0,00 €</p>
           <p id="global-expenses-count" class="text-[11px] text-slate-400 mt-0.5">0 recibos activos</p>
         </div>
         <div class="bg-slate-800/80 rounded-xl p-3">
-          <p class="text-[11px] text-slate-400">Colchón / Resultado</p>
+          <p class="text-[11px] text-slate-400">Colchón del mes</p>
           <p id="global-net" class="text-base sm:text-lg font-bold text-emerald-400 mt-0.5">0,00 €</p>
           <p id="global-net-sub" class="text-[11px] text-slate-400 mt-0.5">Aportación vs Gastos</p>
         </div>
@@ -98,8 +110,8 @@
     <!-- BLOQUE 1: INGRESOS Y APORTACIÓN DE CADA UNO -->
     <section class="space-y-3">
       <div class="flex items-center justify-between px-1">
-        <h2 class="font-bold text-slate-900 text-sm sm:text-base">1. Aportaciones (<span class="pct-label">25</span>%)</h2>
-        <span class="text-[11px] text-slate-500">Permite pagos parciales</span>
+        <h2 class="font-bold text-slate-900 text-sm sm:text-base">1. Ingresos y Aportación (<span class="pct-label">25</span>%)</h2>
+        <span class="text-[11px] text-slate-500">Toca cualquier sueldo para editarlo</span>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -112,7 +124,7 @@
     <section class="space-y-3">
       <div class="px-1">
         <h2 class="font-bold text-slate-900 text-sm sm:text-base">2. Recibos y Gastos Comunes</h2>
-        <p class="text-[11px] text-slate-500">Toca el importe para ajustarlo este mes o activa/desactiva agua y gas.</p>
+        <p class="text-[11px] text-slate-500">Modifica el importe del mes en los variables o marca si este mes toca agua/gas.</p>
       </div>
 
       <div class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
@@ -120,7 +132,7 @@
 
         <!-- Formulario añadir gasto adaptado a móvil -->
         <form onsubmit="handleAddExpense(event)" class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/70 space-y-2.5">
-          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir nuevo gasto común</p>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir nuevo recibo común</p>
           <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
             <input id="exp-name" type="text" required placeholder="Concepto (ej. Luz, Agua, Internet...)"
               class="sm:col-span-5 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
@@ -145,55 +157,59 @@
 
   </main>
 
-  <!-- MODAL DE AJUSTES Y CONEXIÓN SUPABASE -->
+  <!-- MODAL DE AJUSTES -->
   <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-xl space-y-4 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 class="font-bold text-base text-slate-900">⚙️ Ajustes de la Cuenta</h3>
-        <button onclick="closeSettingsModal()" class="p-1 text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        <button type="button" onclick="closeSettingsModal()" class="p-1 text-slate-400 hover:text-slate-600 text-lg">✕</button>
       </div>
 
       <form onsubmit="saveSettings(event)" class="space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre 1</label>
-            <input id="set-user1-name" type="text" required
-              class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Persona 1</label>
+            <input id="set-user1-name" type="text" required placeholder="Ej. Miguel"
+              class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre 2</label>
-            <input id="set-user2-name" type="text" required
-              class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre Persona 2</label>
+            <input id="set-user2-name" type="text" required placeholder="Ej. Laura"
+              class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-1">% de aportación a la Conjunta</label>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">% de sueldo a aportar a la Conjunta</label>
           <div class="flex items-center gap-2">
             <input id="set-joint-pct" type="number" min="1" max="100" required
-              class="w-24 px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-bold" />
+              class="w-24 px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-slate-900" />
             <span class="text-xs text-slate-500">% de los ingresos mensuales</span>
           </div>
         </div>
 
-        <div class="pt-3 border-t border-slate-100 space-y-2.5">
-          <p class="text-xs font-bold text-indigo-600 uppercase tracking-wider">Nube (Supabase)</p>
-          <div>
-            <label class="block text-[11px] font-medium text-slate-500 mb-1">Project URL</label>
-            <input id="set-sb-url" type="url" placeholder="https://xxxx.supabase.co"
-              class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono" />
+        <details class="pt-2 border-t border-slate-100">
+          <summary class="text-xs font-semibold text-slate-500 cursor-pointer select-none py-1">
+            Conexión avanzada con Supabase (Ya configurada)
+          </summary>
+          <div class="space-y-2.5 pt-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">Project URL</label>
+              <input id="set-sb-url" type="url"
+                class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">Publishable / Anon Key</label>
+              <input id="set-sb-key" type="text"
+                class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono" />
+            </div>
           </div>
-          <div>
-            <label class="block text-[11px] font-medium text-slate-500 mb-1">Anon Public Key</label>
-            <input id="set-sb-key" type="text" placeholder="eyJhbGciOi..."
-              class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono" />
-          </div>
-        </div>
+        </details>
 
         <div class="flex items-center justify-between pt-4 border-t border-slate-100 gap-2">
           <button type="button" onclick="resetDemoData()"
             class="text-xs text-rose-600 hover:underline py-2">
-            Restaurar ejemplo
+            Restaurar datos base
           </button>
           <div class="flex gap-2">
             <button type="button" onclick="closeSettingsModal()"
@@ -202,7 +218,7 @@
             </button>
             <button type="submit"
               class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">
-              Guardar
+              Guardar cambios
             </button>
           </div>
         </div>
@@ -210,6 +226,6 @@
     </div>
   </div>
 
-  <script src="./app.js"></script>
+  <script src="./app.js" charset="utf-8"></script>
 </body>
 </html>
