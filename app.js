@@ -304,8 +304,30 @@ async function saveState() {
 }
 
 // ============================================================================
-// CÁLCULOS DE CADA MIEMBRO EN EL MES SELECCIONADO
+// CÁLCULOS DE CADA MIEMBRO EN EL MES SELECCIONADO (POR CUENTA: GASTOS Y AHORRO)
 // ============================================================================
+function getUserAccountContributions(userKey, month, targetGastos) {
+  const key = `${month}_${userKey}`;
+  const raw = state.contributions[key];
+
+  if (raw && typeof raw === 'object') {
+    return {
+      gastos: Math.max(0, Math.round(Number(raw.gastos) || 0)),
+      ahorro: Math.max(0, Math.round(Number(raw.ahorro) || 0))
+    };
+  }
+
+  // Compatibilidad si había un número plano guardado de antes
+  const legacyNum = Math.max(0, Math.round(Number(raw) || 0));
+  if (legacyNum > 0) {
+    const gastosPart = Math.min(targetGastos || legacyNum, legacyNum);
+    const ahorroPart = Math.max(0, legacyNum - gastosPart);
+    return { gastos: gastosPart, ahorro: ahorroPart };
+  }
+
+  return { gastos: 0, ahorro: 0 };
+}
+
 function getMemberStats(userKey, month) {
   const pct = (Number(state.config.jointPercentage) || 25) / 100;
   const userIncomes = state.incomes.filter(i => i.owner === userKey && i.month === month);
@@ -333,8 +355,15 @@ function getMemberStats(userKey, month) {
   const targetAhorro = totalSplit.ahorro;
 
   const targetCollectedShare = collectedSplit.total;
-  const alreadyContributed = Math.round(Number(state.contributions[`${month}_${userKey}`]) || 0);
-  const remainingTotal = Math.max(0, targetTotalShare - alreadyContributed);
+  const acct = getUserAccountContributions(userKey, month, targetGastos);
+
+  const contributedGastos = acct.gastos;
+  const contributedAhorro = acct.ahorro;
+  const remainingGastos = Math.max(0, targetGastos - contributedGastos);
+  const remainingAhorro = Math.max(0, targetAhorro - contributedAhorro);
+
+  const alreadyContributed = contributedGastos + contributedAhorro;
+  const remainingTotal = remainingGastos + remainingAhorro;
 
   return {
     incomes: userIncomes,
@@ -347,6 +376,10 @@ function getMemberStats(userKey, month) {
     targetCollectedShare,
     collectedGastos: collectedSplit.gastos,
     collectedAhorro: collectedSplit.ahorro,
+    contributedGastos,
+    contributedAhorro,
+    remainingGastos,
+    remainingAhorro,
     alreadyContributed,
     remainingTotal
   };
@@ -379,17 +412,65 @@ function renderApp() {
   const s1 = getMemberStats('user1', month);
   const s2 = getMemberStats('user2', month);
 
-  // Resumen global centrado en Aportado, Pendiente y Reparto Gastos/Ahorro
+  // Resumen global centrado en Aportado, Pendiente y Progreso por Cuenta (Gastos y Ahorro)
   const totalTransferred = s1.alreadyContributed + s2.alreadyContributed;
   const totalExpected = s1.targetTotalShare + s2.targetTotalShare;
   const totalMissing = s1.remainingTotal + s2.remainingTotal;
-  const totalGastos = s1.targetGastos + s2.targetGastos;
-  const totalAhorro = s1.targetAhorro + s2.targetAhorro;
+
+  const totalGastosTarget = s1.targetGastos + s2.targetGastos;
+  const totalGastosContributed = s1.contributedGastos + s2.contributedGastos;
+  const totalGastosMissing = s1.remainingGastos + s2.remainingGastos;
+  const gastosPct = totalGastosTarget > 0 ? Math.min(100, Math.round((totalGastosContributed / totalGastosTarget) * 100)) : 0;
+
+  const totalAhorroTarget = s1.targetAhorro + s2.targetAhorro;
+  const totalAhorroContributed = s1.contributedAhorro + s2.contributedAhorro;
+  const totalAhorroMissing = s1.remainingAhorro + s2.remainingAhorro;
+  const ahorroPct = totalAhorroTarget > 0 ? Math.min(100, Math.round((totalAhorroContributed / totalAhorroTarget) * 100)) : 0;
 
   document.getElementById('global-transferred').textContent = formatEUR(totalTransferred);
   document.getElementById('global-expected').textContent = `aportados de ${formatEUR(totalExpected)}`;
-  document.getElementById('global-gastos-target').textContent = formatEUR(totalGastos);
-  document.getElementById('global-ahorro-target').textContent = formatEUR(totalAhorro);
+
+  // Actualizar caja global de Gastos
+  const gText = document.getElementById('global-gastos-progress-text');
+  const gBadge = document.getElementById('global-gastos-badge');
+  const gBar = document.getElementById('global-gastos-bar');
+  if (gText) {
+    gText.innerHTML = `${formatEUR(totalGastosContributed)} <span class="text-xs font-normal text-slate-400">de ${formatEUR(totalGastosTarget)}</span>`;
+  }
+  if (gBadge) {
+    if (totalGastosTarget === 0) {
+      gBadge.textContent = 'Sin datos';
+      gBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-700 text-slate-300';
+    } else if (totalGastosMissing <= 0) {
+      gBadge.textContent = '✅ Al día';
+      gBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300';
+    } else {
+      gBadge.textContent = `Faltan ${formatEUR(totalGastosMissing)}`;
+      gBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300';
+    }
+  }
+  if (gBar) gBar.style.width = `${gastosPct}%`;
+
+  // Actualizar caja global de Ahorro
+  const aText = document.getElementById('global-ahorro-progress-text');
+  const aBadge = document.getElementById('global-ahorro-badge');
+  const aBar = document.getElementById('global-ahorro-bar');
+  if (aText) {
+    aText.innerHTML = `${formatEUR(totalAhorroContributed)} <span class="text-xs font-normal text-slate-400">de ${formatEUR(totalAhorroTarget)}</span>`;
+  }
+  if (aBadge) {
+    if (totalAhorroTarget === 0) {
+      aBadge.textContent = 'Sin datos';
+      aBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-700 text-slate-300';
+    } else if (totalAhorroMissing <= 0) {
+      aBadge.textContent = '✅ Al día';
+      aBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300';
+    } else {
+      aBadge.textContent = `Faltan ${formatEUR(totalAhorroMissing)}`;
+      aBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300';
+    }
+  }
+  if (aBar) aBar.style.width = `${ahorroPct}%`;
 
   const pill = document.getElementById('global-status-pill');
   if (totalExpected === 0 && totalTransferred === 0) {
@@ -441,17 +522,19 @@ function getMonthPendingDetails(s1, s2) {
   if (s1.totalIncome <= 0) {
     missingIncomes.push(state.config.user1Name);
   } else if (s1.remainingTotal > 0) {
-    missingContributions.push(
-      `${state.config.user1Name} (${formatEUR(s1.remainingTotal)}${s1.pendingIncome > 0 ? ' · cobro pendiente' : ''})`
-    );
+    const subParts = [];
+    if (s1.remainingGastos > 0) subParts.push(`${formatEUR(s1.remainingGastos)} Gastos`);
+    if (s1.remainingAhorro > 0) subParts.push(`${formatEUR(s1.remainingAhorro)} Ahorro`);
+    missingContributions.push(`${state.config.user1Name} (${subParts.join(' + ')})`);
   }
 
   if (s2.totalIncome <= 0) {
     missingIncomes.push(state.config.user2Name);
   } else if (s2.remainingTotal > 0) {
-    missingContributions.push(
-      `${state.config.user2Name} (${formatEUR(s2.remainingTotal)}${s2.pendingIncome > 0 ? ' · cobro pendiente' : ''})`
-    );
+    const subParts = [];
+    if (s2.remainingGastos > 0) subParts.push(`${formatEUR(s2.remainingGastos)} Gastos`);
+    if (s2.remainingAhorro > 0) subParts.push(`${formatEUR(s2.remainingAhorro)} Ahorro`);
+    missingContributions.push(`${state.config.user2Name} (${subParts.join(' + ')})`);
   }
 
   const hasPending = missingIncomes.length > 0 || missingContributions.length > 0;
@@ -460,7 +543,7 @@ function getMonthPendingDetails(s1, s2) {
     parts.push(`Falta añadir ingresos de ${missingIncomes.join(' y ')}`);
   }
   if (missingContributions.length > 0) {
-    parts.push(`Pendiente de aportar: ${missingContributions.join(' y ')}`);
+    parts.push(`Pendiente de aportar: ${missingContributions.join(' · ')}`);
   }
 
   return {
@@ -490,14 +573,21 @@ function renderReminderBanner(s1, s2) {
 }
 
 // ============================================================================
-// TARJETA COMPLETA DEL USUARIO ACTIVO (SUELDOS + DESGLOSE GASTOS/AHORRO)
+// TARJETA COMPLETA DEL USUARIO ACTIVO (BARRA Y CONTROLES POR CADA CUENTA)
 // ============================================================================
 function buildFullMemberCardHTML(userKey, name, stats) {
   const pct = state.config.jointPercentage;
-  const progressPct = stats.targetTotalShare > 0
-    ? Math.min(100, Math.round((stats.alreadyContributed / stats.targetTotalShare) * 100))
+  const isAllComplete = stats.targetTotalShare > 0 && stats.remainingTotal <= 0;
+
+  const gastosPct = stats.targetGastos > 0
+    ? Math.min(100, Math.round((stats.contributedGastos / stats.targetGastos) * 100))
     : 0;
-  const isComplete = stats.targetTotalShare > 0 && stats.remainingTotal <= 0;
+  const isGastosComplete = stats.targetGastos > 0 && stats.remainingGastos <= 0;
+
+  const ahorroPct = stats.targetAhorro > 0
+    ? Math.min(100, Math.round((stats.contributedAhorro / stats.targetAhorro) * 100))
+    : 0;
+  const isAhorroComplete = stats.targetAhorro > 0 && stats.remainingAhorro <= 0;
 
   return `
     <section class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 sm:p-5 space-y-4">
@@ -516,13 +606,13 @@ function buildFullMemberCardHTML(userKey, name, stats) {
         ${
           stats.targetTotalShare === 0
             ? `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shrink-0">Añade tu sueldo</span>`
-            : isComplete
+            : isAllComplete
             ? `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Todo aportado</span>`
             : `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shrink-0">Faltan ${formatEUR(stats.remainingTotal)}</span>`
         }
       </div>
 
-      <!-- Lista de Sueldos / Pagadores -->
+      <!-- 1. Lista de Sueldos / Pagadores -->
       <div class="space-y-2">
         <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">1. Mis Sueldos / Ingresos del mes</p>
 
@@ -569,54 +659,138 @@ function buildFullMemberCardHTML(userKey, name, stats) {
         </form>
       </div>
 
-      <!-- Desglose redondeado en 2 Cuentas: Gastos (~2/3) y Ahorro (~1/3) -->
+      <!-- 2. Desglose redondeado en 2 Cuentas con progreso independiente -->
       <div class="pt-3 border-t border-slate-100 space-y-3">
         <div class="flex items-center justify-between">
           <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            2. Tu Aportación Redondeada (${pct}%)
+            2. Tus Aportaciones por Cuenta (${pct}%)
           </p>
-          <span class="text-xs font-bold text-slate-900">Total: ${formatEUR(stats.targetTotalShare)}</span>
+          <span class="text-xs font-bold text-slate-700">
+            Aportado: <strong class="text-slate-950">${formatEUR(stats.alreadyContributed)}</strong> / ${formatEUR(stats.targetTotalShare)}
+          </span>
         </div>
 
-        <div class="grid grid-cols-2 gap-2.5">
-          <!-- Caja Cuenta de Gastos (~2/3) -->
-          <div class="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 flex flex-col justify-between">
-            <div>
-              <span class="text-[11px] font-semibold text-indigo-900 flex items-center gap-1">
-                <span>🏦</span>
-                <span>Cuenta Gastos</span>
-              </span>
-              <p class="text-lg sm:text-xl font-bold text-indigo-700 mt-0.5">${formatEUR(stats.targetGastos)}</p>
-              <p class="text-[10px] text-indigo-600/80">Aprox. 2/3 (redondeado)</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <!-- ============================================================= -->
+          <!-- TARJETA CUENTA DE GASTOS (~2/3) CON SU PROPIA BARRA Y ESTADO  -->
+          <!-- ============================================================= -->
+          <div class="rounded-2xl p-3.5 border ${
+            isGastosComplete
+              ? 'bg-emerald-50/60 border-emerald-200'
+              : 'bg-indigo-50/60 border-indigo-100'
+          } flex flex-col justify-between space-y-2.5">
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-xs font-bold text-indigo-950 flex items-center gap-1">
+                  <span>🏦</span>
+                  <span>Cuenta Gastos (~2/3)</span>
+                </span>
+                ${
+                  stats.targetGastos === 0
+                    ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600">0 €</span>`
+                    : isGastosComplete
+                    ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900">✅ Completada</span>`
+                    : `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900">Faltan ${formatEUR(stats.remainingGastos)}</span>`
+                }
+              </div>
+
+              <div class="flex items-baseline justify-between">
+                <p class="text-xl font-bold ${isGastosComplete ? 'text-emerald-700' : 'text-indigo-700'}">
+                  ${formatEUR(stats.contributedGastos)}
+                  <span class="text-xs font-medium text-slate-500">de ${formatEUR(stats.targetGastos)}</span>
+                </p>
+              </div>
+
+              <!-- Barra de progreso exclusiva de Gastos -->
+              <div class="w-full h-2 bg-white/90 rounded-full overflow-hidden border border-indigo-100">
+                <div class="h-full ${isGastosComplete ? 'bg-emerald-500' : 'bg-indigo-600'} transition-all" style="width: ${gastosPct}%"></div>
+              </div>
             </div>
-            ${
-              stats.targetGastos > 0 && !isComplete
-                ? `<button type="button" onclick="quickAddContribution('${userKey}', ${stats.targetGastos}, ${stats.targetTotalShare})"
-                    class="mt-2 w-full py-1.5 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-[11px] transition">
-                    + Meter ${formatEUR(stats.targetGastos)}
-                   </button>`
-                : ''
-            }
+
+            <!-- Botones de acción exclusivos de Gastos -->
+            <div class="flex items-center gap-1.5 pt-0.5">
+              ${
+                stats.targetGastos > 0 && !isGastosComplete
+                  ? `<button type="button" onclick="completeAccountContribution('${userKey}', 'gastos', ${stats.targetGastos})"
+                      class="flex-1 py-2 px-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs transition shadow-2xs">
+                      ✓ ${stats.contributedGastos > 0 ? `Completar (+${formatEUR(stats.remainingGastos)})` : `Aportar ${formatEUR(stats.targetGastos)}`}
+                     </button>`
+                  : stats.targetGastos > 0 && isGastosComplete
+                  ? `<span class="flex-1 py-1.5 px-2.5 rounded-xl bg-emerald-100 text-emerald-800 font-semibold text-xs text-center">
+                      ✅ Gastos al día
+                     </span>`
+                  : `<span class="text-[11px] text-slate-400 italic">Añade ingresos primero</span>`
+              }
+              ${
+                stats.contributedGastos > 0
+                  ? `<button type="button" onclick="resetAccountContribution('${userKey}', 'gastos')" title="Poner Cuenta Gastos a 0 €"
+                      class="py-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-500 font-semibold text-xs transition shrink-0">
+                      0 €
+                     </button>`
+                  : ''
+              }
+            </div>
           </div>
 
-          <!-- Caja Cuenta de Ahorro (~1/3) -->
-          <div class="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3 flex flex-col justify-between">
-            <div>
-              <span class="text-[11px] font-semibold text-emerald-900 flex items-center gap-1">
-                <span>🐷</span>
-                <span>Cuenta Ahorro</span>
-              </span>
-              <p class="text-lg sm:text-xl font-bold text-emerald-700 mt-0.5">${formatEUR(stats.targetAhorro)}</p>
-              <p class="text-[10px] text-emerald-600/80">Aprox. 1/3 (redondeado)</p>
+          <!-- ============================================================= -->
+          <!-- TARJETA CUENTA DE AHORRO (~1/3) CON SU PROPIA BARRA Y ESTADO  -->
+          <!-- ============================================================= -->
+          <div class="rounded-2xl p-3.5 border ${
+            isAhorroComplete
+              ? 'bg-emerald-50/70 border-emerald-200'
+              : 'bg-teal-50/60 border-teal-100'
+          } flex flex-col justify-between space-y-2.5">
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-xs font-bold text-emerald-950 flex items-center gap-1">
+                  <span>🐷</span>
+                  <span>Cuenta Ahorro (~1/3)</span>
+                </span>
+                ${
+                  stats.targetAhorro === 0
+                    ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600">0 €</span>`
+                    : isAhorroComplete
+                    ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900">✅ Completada</span>`
+                    : `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900">Faltan ${formatEUR(stats.remainingAhorro)}</span>`
+                }
+              </div>
+
+              <div class="flex items-baseline justify-between">
+                <p class="text-xl font-bold text-emerald-700">
+                  ${formatEUR(stats.contributedAhorro)}
+                  <span class="text-xs font-medium text-slate-500">de ${formatEUR(stats.targetAhorro)}</span>
+                </p>
+              </div>
+
+              <!-- Barra de progreso exclusiva de Ahorro -->
+              <div class="w-full h-2 bg-white/90 rounded-full overflow-hidden border border-emerald-100">
+                <div class="h-full bg-emerald-600 transition-all" style="width: ${ahorroPct}%"></div>
+              </div>
             </div>
-            ${
-              stats.targetAhorro > 0 && !isComplete
-                ? `<button type="button" onclick="quickAddContribution('${userKey}', ${stats.targetAhorro}, ${stats.targetTotalShare})"
-                    class="mt-2 w-full py-1.5 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-[11px] transition">
-                    + Meter ${formatEUR(stats.targetAhorro)}
-                   </button>`
-                : ''
-            }
+
+            <!-- Botones de acción exclusivos de Ahorro -->
+            <div class="flex items-center gap-1.5 pt-0.5">
+              ${
+                stats.targetAhorro > 0 && !isAhorroComplete
+                  ? `<button type="button" onclick="completeAccountContribution('${userKey}', 'ahorro', ${stats.targetAhorro})"
+                      class="flex-1 py-2 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-xs transition shadow-2xs">
+                      ✓ ${stats.contributedAhorro > 0 ? `Completar (+${formatEUR(stats.remainingAhorro)})` : `Aportar ${formatEUR(stats.targetAhorro)}`}
+                     </button>`
+                  : stats.targetAhorro > 0 && isAhorroComplete
+                  ? `<span class="flex-1 py-1.5 px-2.5 rounded-xl bg-emerald-100 text-emerald-800 font-semibold text-xs text-center">
+                      ✅ Ahorro al día
+                     </span>`
+                  : `<span class="text-[11px] text-slate-400 italic">Añade ingresos primero</span>`
+              }
+              ${
+                stats.contributedAhorro > 0
+                  ? `<button type="button" onclick="resetAccountContribution('${userKey}', 'ahorro')" title="Poner Cuenta Ahorro a 0 €"
+                      class="py-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-500 font-semibold text-xs transition shrink-0">
+                      0 €
+                     </button>`
+                  : ''
+              }
+            </div>
           </div>
         </div>
 
@@ -629,46 +803,30 @@ function buildFullMemberCardHTML(userKey, name, stats) {
             : ''
         }
 
-        <!-- Barra de progreso y controles de aportación -->
-        <div class="space-y-2 pt-1">
-          <div class="flex items-center justify-between text-xs">
-            <span class="text-slate-500">Ya has aportado: <strong class="text-indigo-600">${formatEUR(stats.alreadyContributed)}</strong></span>
-            <span class="font-semibold text-slate-700">Pendiente: ${formatEUR(stats.remainingTotal)}</span>
-          </div>
-
-          <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-            <div class="h-full ${isComplete ? 'bg-emerald-500' : 'bg-indigo-600'} transition-all" style="width: ${progressPct}%"></div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-1.5 pt-1">
-            <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1 min-w-[140px]">
-              <input id="partial-input-${userKey}" type="number" step="1" placeholder="Otra cantidad €"
-                class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-              <button type="submit"
-                class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold rounded-xl text-xs transition shrink-0">
-                + Sumar
-              </button>
-            </form>
-
-            ${
-              !isComplete && stats.targetTotalShare > 0
-                ? `<button type="button" onclick="completeContribution('${userKey}', ${stats.targetTotalShare})"
-                    class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold rounded-xl text-xs transition shrink-0">
-                    Completar todo
-                   </button>`
-                : ''
-            }
-
-            ${
-              stats.alreadyContributed > 0
-                ? `<button type="button" onclick="resetContribution('${userKey}')" title="Poner aportación a 0 €"
-                    class="px-2.5 py-2 border border-slate-200 hover:bg-slate-100 text-slate-500 rounded-xl text-xs transition shrink-0">
-                    0 €
-                   </button>`
-                : ''
-            }
-          </div>
-        </div>
+        <!-- Aportación manual eligiendo explícitamente a qué cuenta va -->
+        ${
+          stats.targetTotalShare > 0
+            ? `
+            <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200/70 space-y-2">
+              <p class="text-[11px] font-medium text-slate-500">
+                ¿Has hecho una transferencia parcial de otro importe? Indica cuánto y a qué cuenta:
+              </p>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <input id="partial-input-${userKey}" type="number" step="1" min="1" placeholder="Cantidad €"
+                  class="w-28 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900" />
+                <button type="button" onclick="addPartialToAccount('${userKey}', 'gastos')"
+                  class="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 active:bg-indigo-300 text-indigo-900 font-semibold rounded-xl text-xs transition">
+                  + A Gastos 🏦
+                </button>
+                <button type="button" onclick="addPartialToAccount('${userKey}', 'ahorro')"
+                  class="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 active:bg-emerald-300 text-emerald-900 font-semibold rounded-xl text-xs transition">
+                  + A Ahorro 🐷
+                </button>
+              </div>
+            </div>
+            `
+            : ''
+        }
       </div>
     </section>
   `;
@@ -679,9 +837,8 @@ function buildFullMemberCardHTML(userKey, name, stats) {
 // ============================================================================
 function buildCompactMemberCardHTML(userKey, name, stats) {
   const isComplete = stats.targetTotalShare > 0 && stats.remainingTotal <= 0;
-  const progressPct = stats.targetTotalShare > 0
-    ? Math.min(100, Math.round((stats.alreadyContributed / stats.targetTotalShare) * 100))
-    : 0;
+  const isGastosComplete = stats.targetGastos > 0 && stats.remainingGastos <= 0;
+  const isAhorroComplete = stats.targetAhorro > 0 && stats.remainingAhorro <= 0;
 
   return `
     <section class="bg-white/90 rounded-2xl border border-slate-200/80 p-3.5 sm:px-5 shadow-2xs space-y-2.5">
@@ -695,22 +852,24 @@ function buildCompactMemberCardHTML(userKey, name, stats) {
           stats.targetTotalShare === 0
             ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500 shrink-0">Sin ingresos aún</span>`
             : isComplete
-            ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Al día</span>`
+            ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Todo al día</span>`
             : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 shrink-0">Faltan ${formatEUR(stats.remainingTotal)}</span>`
         }
       </div>
 
-      <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-        <span>
-          Aportado: <strong class="text-indigo-600">${formatEUR(stats.alreadyContributed)}</strong> de <strong>${formatEUR(stats.targetTotalShare)}</strong>
-        </span>
-        <span class="text-[11px] text-slate-500">
-          (🏦 Gastos: <strong>${formatEUR(stats.targetGastos)}</strong> · 🐷 Ahorro: <strong>${formatEUR(stats.targetAhorro)}</strong>)
-        </span>
-      </div>
-
-      <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div class="h-full ${isComplete ? 'bg-emerald-500' : 'bg-indigo-500'} transition-all" style="width: ${progressPct}%"></div>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-100 flex items-center justify-between">
+          <span class="text-slate-600 font-medium">🏦 Gastos</span>
+          <span class="font-bold ${isGastosComplete ? 'text-emerald-700' : 'text-indigo-700'}">
+            ${formatEUR(stats.contributedGastos)} / ${formatEUR(stats.targetGastos)} ${isGastosComplete ? '✅' : ''}
+          </span>
+        </div>
+        <div class="bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-100 flex items-center justify-between">
+          <span class="text-slate-600 font-medium">🐷 Ahorro</span>
+          <span class="font-bold ${isAhorroComplete ? 'text-emerald-700' : 'text-teal-700'}">
+            ${formatEUR(stats.contributedAhorro)} / ${formatEUR(stats.targetAhorro)} ${isAhorroComplete ? '✅' : ''}
+          </span>
+        </div>
       </div>
     </section>
   `;
@@ -778,45 +937,46 @@ function deleteIncome(id) {
   saveState();
 }
 
-function quickAddContribution(userKey, amountToAdd, maxTarget) {
+function completeAccountContribution(userKey, accountType, targetAmount) {
   if (!canEditMember(userKey)) return;
+  const stats = getMemberStats(userKey, state.selectedMonth);
   const key = `${state.selectedMonth}_${userKey}`;
-  const current = Math.round(Number(state.contributions[key]) || 0);
-  const nextVal = Math.min(maxTarget, current + Math.round(amountToAdd));
-  state.contributions[key] = nextVal;
+  const current = getUserAccountContributions(userKey, state.selectedMonth, stats.targetGastos);
+
+  current[accountType] = Math.round(targetAmount);
+  state.contributions[key] = current;
   renderApp();
   saveState();
 }
 
-function handleAddPartialContribution(e, userKey) {
-  e.preventDefault();
+function resetAccountContribution(userKey, accountType) {
   if (!canEditMember(userKey)) return;
+  const stats = getMemberStats(userKey, state.selectedMonth);
+  const key = `${state.selectedMonth}_${userKey}`;
+  const current = getUserAccountContributions(userKey, state.selectedMonth, stats.targetGastos);
 
+  current[accountType] = 0;
+  state.contributions[key] = current;
+  renderApp();
+  saveState();
+}
+
+function addPartialToAccount(userKey, accountType) {
+  if (!canEditMember(userKey)) return;
   const input = document.getElementById(`partial-input-${userKey}`);
+  if (!input) return;
+
   const amountToAdd = Math.round(parseFloat(input.value) || 0);
   if (!amountToAdd || amountToAdd <= 0) return;
 
+  const stats = getMemberStats(userKey, state.selectedMonth);
   const key = `${state.selectedMonth}_${userKey}`;
-  const current = Math.round(Number(state.contributions[key]) || 0);
-  state.contributions[key] = current + amountToAdd;
+  const current = getUserAccountContributions(userKey, state.selectedMonth, stats.targetGastos);
+
+  current[accountType] = (current[accountType] || 0) + amountToAdd;
+  state.contributions[key] = current;
 
   input.value = '';
-  renderApp();
-  saveState();
-}
-
-function completeContribution(userKey, targetAmount) {
-  if (!canEditMember(userKey)) return;
-  const key = `${state.selectedMonth}_${userKey}`;
-  state.contributions[key] = Math.round(targetAmount);
-  renderApp();
-  saveState();
-}
-
-function resetContribution(userKey) {
-  if (!canEditMember(userKey)) return;
-  const key = `${state.selectedMonth}_${userKey}`;
-  state.contributions[key] = 0;
   renderApp();
   saveState();
 }
