@@ -11,7 +11,6 @@
   <meta name="apple-mobile-web-app-title" content="Conjunta" />
   <title>Cuenta Conjunta</title>
 
-  <!-- Iconos personalizados y Web App Manifest (sustituye el icono V de Vercel en Android e iOS) -->
   <link rel="icon" type="image/svg+xml" href="/icon.svg" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -34,19 +33,26 @@
         font-size: 16px !important;
       }
     }
+    @keyframes spinOnce {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spin-anim {
+      animation: spinOnce 0.6s ease-in-out;
+    }
   </style>
 </head>
 <body class="min-h-screen">
 
   <!-- ===================================================================== -->
-  <!-- PANTALLA DE ACCESO PRIVADO (CON LOGO PROPIO Y SOPORTE BIOMÉTRICO)     -->
+  <!-- PANTALLA DE ACCESO PRIVADO                                            -->
   <!-- ===================================================================== -->
   <div id="login-screen" class="hidden min-h-screen flex items-center justify-center p-4 bg-slate-900">
     <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 sm:p-8 space-y-6">
       <div class="text-center space-y-2.5">
         <img src="/icon.svg" alt="Logo Cuenta Conjunta" class="w-16 h-16 mx-auto rounded-2xl shadow-md" />
         <h1 class="text-xl font-bold text-slate-900">Cuenta Conjunta</h1>
-        <p class="text-xs text-slate-500">Accede con tu usuario o con la huella / Face ID de tu móvil</p>
+        <p class="text-xs text-slate-500">Control de aportaciones a Gastos y Ahorro</p>
       </div>
 
       <form id="login-form" method="post" action="#" onsubmit="handleLogin(event)" class="space-y-4">
@@ -73,15 +79,15 @@
   </div>
 
   <!-- ===================================================================== -->
-  <!-- APLICACIÓN PRINCIPAL (SOLO VISIBLE TRAS INICIAR SESIÓN)               -->
+  <!-- APLICACIÓN PRINCIPAL                                                  -->
   <!-- ===================================================================== -->
   <div id="app-screen" class="hidden pb-12">
 
-    <!-- CABECERA EN DOS NIVELES ADAPTADA A MÓVIL -->
+    <!-- CABECERA EN DOS NIVELES CON BOTÓN DE ACTUALIZAR PARA iOS -->
     <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3.5 sm:px-4 py-3 shadow-2xs">
-      <div class="max-w-3xl mx-auto space-y-2.5">
+      <div class="max-w-2xl mx-auto space-y-2.5">
 
-        <!-- Fila 1: Logo + Título + Usuario activo + Ajustes + Salir -->
+        <!-- Fila 1: Logo + Título + Botón Actualizar (iOS) + Ajustes + Salir -->
         <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-2.5 min-w-0">
             <img src="/icon.svg" alt="Logo" class="w-10 h-10 rounded-xl shrink-0 shadow-xs" />
@@ -98,11 +104,19 @@
           </div>
 
           <div class="flex items-center gap-1.5 shrink-0">
+            <!-- Botón Actualizar especial para iOS / recarga rápida -->
+            <button type="button" onclick="handleManualRefresh()" title="Actualizar datos y versión"
+              class="px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold transition text-xs flex items-center gap-1">
+              <span id="refresh-icon" class="inline-block">🔄</span>
+              <span class="hidden sm:inline">Actualizar</span>
+            </button>
+
             <button type="button" onclick="openSettingsModal()" aria-label="Ajustes"
-              class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold transition text-xs flex items-center gap-1">
+              class="px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 font-semibold transition text-xs flex items-center gap-1">
               <span>⚙️</span>
               <span class="hidden sm:inline">Ajustes</span>
             </button>
+
             <button type="button" onclick="handleLogout()" title="Cerrar sesión"
               class="px-2.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-500 font-semibold transition text-xs">
               Salir
@@ -110,7 +124,7 @@
           </div>
         </div>
 
-        <!-- Fila 2: Selector de Mes centrado y completo -->
+        <!-- Fila 2: Selector de Mes centrado -->
         <div class="flex items-center justify-between bg-slate-100/90 rounded-xl border border-slate-200/80 p-1">
           <button type="button" onclick="stepMonth(-1)" title="Mes anterior"
             class="px-3.5 py-1.5 text-slate-700 hover:bg-white active:bg-slate-200 rounded-lg font-bold text-sm transition">
@@ -133,15 +147,15 @@
       </div>
     </header>
 
-    <main class="max-w-3xl mx-auto px-3 sm:px-4 pt-4 space-y-5">
+    <main class="max-w-2xl mx-auto px-3 sm:px-4 pt-4 space-y-4">
 
-      <!-- BOTÓN RÁPIDO PARA INSTALAR LA APP SI ENTRAN DESDE EL NAVEGADOR -->
+      <!-- BANNER DE INSTALACIÓN PWA (ANDROID) -->
       <div id="install-pwa-banner" class="hidden rounded-2xl p-3.5 bg-indigo-600 text-white flex items-center justify-between gap-3 shadow-xs">
         <div class="flex items-center gap-2.5 min-w-0">
           <img src="/icon.svg" alt="" class="w-8 h-8 rounded-lg border border-white/20 shrink-0" />
           <div class="text-xs">
             <p class="font-bold">Instalar Cuenta Conjunta en tu móvil</p>
-            <p class="text-indigo-100 text-[11px]">Con su propio icono y pantalla completa</p>
+            <p class="text-indigo-100 text-[11px]">Acceso directo y pantalla completa</p>
           </div>
         </div>
         <button type="button" onclick="triggerInstallPwa()"
@@ -150,85 +164,52 @@
         </button>
       </div>
 
-      <!-- AVISO DE APORTACIONES O COBROS PENDIENTES -->
+      <!-- AVISO DE PENDIENTES -->
       <div id="reminder-banner" class="hidden rounded-2xl p-3.5 border text-xs sm:text-sm shadow-2xs"></div>
 
-      <!-- TARJETA RESUMEN DEL MES -->
+      <!-- =================================================================== -->
+      <!-- TARJETA PRINCIPAL DE TU USUARIO (SIEMPRE EN PRIMER LUGAR)           -->
+      <!-- =================================================================== -->
+      <div id="members-Area" class="space-y-4"></div>
+
+      <!-- =================================================================== -->
+      <!-- RESUMEN GLOBAL CONJUNTO DEL MES (APORTADO, PENDIENTE Y REPARTO)     -->
+      <!-- =================================================================== -->
       <section class="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
           <div>
-            <p id="month-human-label" class="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">Resumen del mes</p>
+            <p id="month-human-label" class="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">Total Conjunto del Mes</p>
             <div class="flex items-baseline gap-2 mt-0.5 flex-wrap">
-              <p id="global-transferred" class="text-2xl sm:text-3xl font-bold text-white">0,00 €</p>
-              <span id="global-expected" class="text-xs text-slate-400">aportados de 0,00 €</span>
+              <p id="global-transferred" class="text-2xl sm:text-3xl font-bold text-white">0 €</p>
+              <span id="global-expected" class="text-xs text-slate-400">aportados de 0 €</span>
             </div>
           </div>
           <div class="text-right shrink-0">
-            <span id="global-status-pill" class="inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300">
-              Sin datos
+            <span id="global-status-pill" class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300">
+              Sin ingresos
             </span>
           </div>
         </div>
 
+        <!-- Desglose conjunto Gastos (~2/3) vs Ahorro (~1/3) -->
         <div class="grid grid-cols-2 gap-3">
-          <div class="bg-slate-800/80 rounded-xl p-3">
-            <p class="text-[11px] text-slate-400">Gastos comunes este mes</p>
-            <p id="global-expenses" class="text-base sm:text-lg font-bold text-rose-400 mt-0.5">-0,00 €</p>
-            <p id="global-expenses-count" class="text-[11px] text-slate-400 mt-0.5">0 recibos activos</p>
+          <div class="bg-slate-800/90 rounded-xl p-3 border border-slate-700/60">
+            <p class="text-[11px] text-slate-400 flex items-center gap-1">
+              <span>🏦</span>
+              <span>Total a Cuenta Gastos</span>
+            </p>
+            <p id="global-gastos-target" class="text-base sm:text-lg font-bold text-indigo-300 mt-0.5">0 €</p>
+            <p class="text-[11px] text-slate-500 mt-0.5">Suma de los dos (~2/3)</p>
           </div>
-          <div class="bg-slate-800/80 rounded-xl p-3">
-            <p class="text-[11px] text-slate-400">Colchón del mes</p>
-            <p id="global-net" class="text-base sm:text-lg font-bold text-emerald-400 mt-0.5">0,00 €</p>
-            <p id="global-net-sub" class="text-[11px] text-slate-400 mt-0.5">Aportación vs Gastos</p>
+
+          <div class="bg-slate-800/90 rounded-xl p-3 border border-slate-700/60">
+            <p class="text-[11px] text-slate-400 flex items-center gap-1">
+              <span>🐷</span>
+              <span>Total a Cuenta Ahorro</span>
+            </p>
+            <p id="global-ahorro-target" class="text-base sm:text-lg font-bold text-emerald-300 mt-0.5">0 €</p>
+            <p class="text-[11px] text-slate-500 mt-0.5">Suma de los dos (~1/3)</p>
           </div>
-        </div>
-      </section>
-
-      <!-- BLOQUE 1: INGRESOS Y APORTACIÓN DE CADA UNO -->
-      <section class="space-y-3">
-        <div class="px-1">
-          <h2 class="font-bold text-slate-900 text-sm sm:text-base">1. Ingresos y Aportación (<span class="pct-label">25</span>%)</h2>
-          <p class="text-[11px] text-slate-500">Cada usuario puede editar únicamente sus propios ingresos y aportaciones.</p>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div id="member-card-user1" class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col justify-between space-y-4"></div>
-          <div id="member-card-user2" class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 flex flex-col justify-between space-y-4"></div>
-        </div>
-      </section>
-
-      <!-- BLOQUE 2: GASTOS COMUNES -->
-      <section class="space-y-3">
-        <div class="px-1">
-          <h2 class="font-bold text-slate-900 text-sm sm:text-base">2. Recibos y Gastos Comunes</h2>
-          <p class="text-[11px] text-slate-500">Fijos, variables (0 € hasta rellenar el mes), ocasionales o puntuales de este mes.</p>
-        </div>
-
-        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div id="expenses-list" class="divide-y divide-slate-100"></div>
-
-          <form onsubmit="handleAddExpense(event)" class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/70 space-y-2.5">
-            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Añadir gasto común</p>
-            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-              <input id="exp-name" type="text" required placeholder="Concepto (ej. Luz, Agua, Compra super...)"
-                class="sm:col-span-5 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
-              <select id="exp-type"
-                class="sm:col-span-4 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                <option value="fixed">📌 Fijo</option>
-                <option value="variable">⚡ Variable</option>
-                <option value="periodic">🗓️ Ocasional</option>
-                <option value="oneoff">🛒 Puntual (solo este mes)</option>
-              </select>
-              <div class="sm:col-span-3 flex gap-2">
-                <input id="exp-amount" type="number" step="0.01" min="0" required placeholder="Importe €"
-                  class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
-                <button type="submit"
-                  class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold text-sm rounded-xl transition shrink-0">
-                  Añadir
-                </button>
-              </div>
-            </div>
-          </form>
         </div>
       </section>
 
@@ -236,7 +217,7 @@
   </div>
 
   <!-- ===================================================================== -->
-  <!-- MODAL DE AJUSTES (NOMBRES, %, NOTIFICACIONES Y CONTRASEÑA)            -->
+  <!-- MODAL DE AJUSTES                                                      -->
   <!-- ===================================================================== -->
   <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-xl space-y-5 max-h-[92vh] overflow-y-auto">
@@ -245,7 +226,6 @@
         <button type="button" onclick="closeSettingsModal()" class="p-1 text-slate-400 hover:text-slate-600 text-lg">✕</button>
       </div>
 
-      <!-- Bloque 1: Nombres y % de aportación -->
       <form onsubmit="saveSettings(event)" class="space-y-3.5">
         <p class="text-xs font-bold uppercase tracking-wider text-slate-400">1. Configuración general</p>
         <div class="grid grid-cols-2 gap-3">
@@ -278,7 +258,7 @@
         </div>
       </form>
 
-      <!-- Bloque 2: Notificaciones Web Push Día 1 y Día 15 (Android e iOS) -->
+      <!-- Notificaciones -->
       <div class="pt-4 border-t border-slate-100 space-y-3">
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs font-bold uppercase tracking-wider text-emerald-600">2. Avisos Día 1 y 15</p>
@@ -287,8 +267,7 @@
           </span>
         </div>
         <p class="text-xs text-slate-500 leading-relaxed">
-          Recibe un aviso en este teléfono el <strong>día 1 y el día 15</strong> si aún falta algo por aportar.
-          <span class="block text-[11px] text-slate-400 mt-0.5">(En iPhone, abre la app desde el icono de la pantalla de inicio).</span>
+          Recibe un aviso en este teléfono el <strong>día 1 y el día 15</strong> si falta añadir ingresos o aportar.
         </p>
 
         <div class="flex flex-wrap gap-2">
@@ -304,7 +283,7 @@
         <div id="push-feedback" class="hidden text-xs p-2.5 rounded-xl"></div>
       </div>
 
-      <!-- Bloque 3: Cambiar contraseña -->
+      <!-- Cambiar contraseña -->
       <form onsubmit="handleChangePassword(event)" class="pt-4 border-t border-slate-100 space-y-3">
         <p class="text-xs font-bold uppercase tracking-wider text-indigo-600">3. Cambiar contraseña</p>
 
