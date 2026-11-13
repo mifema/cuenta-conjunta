@@ -1,8 +1,8 @@
 // ============================================================================
-// CUENTA CONJUNTA · AUTENTICACIÓN POR ROLES + SINCRONIZACIÓN SEGURA SUPABASE
+// CUENTA CONJUNTA · CONTROL DE APORTACIONES (GASTOS 2/3 + AHORRO 1/3)
 // ============================================================================
 
-const STORAGE_KEY = 'cuenta_conjunta_clean_v3';
+const STORAGE_KEY = 'cuenta_conjunta_clean_v5';
 const SESSION_KEY = 'cuenta_conjunta_auth_session_v3';
 
 const SUPABASE_URL = 'https://kabhcziezseedckgpgwu.supabase.co';
@@ -25,7 +25,6 @@ function formatYearMonthES(ym) {
   return `${MONTH_NAMES_ES[idx] || m} de ${y}`;
 }
 
-// Estado inicial 100% vacío de datos inventados
 function getEmptyState() {
   return {
     config: {
@@ -35,9 +34,7 @@ function getEmptyState() {
     },
     selectedMonth: getCurrentYearMonth(),
     incomes: [],
-    contributions: {},
-    expenses: [],
-    monthlyExpenseOverrides: {}
+    contributions: {}
   };
 }
 
@@ -79,7 +76,6 @@ function saveSession(sess) {
   }
 }
 
-// Comprueba si el usuario conectado tiene permiso para editar la tarjeta de 'user1' o 'user2'
 function canEditMember(userKey) {
   if (!currentSession) return false;
   if (currentSession.role === 'admin') return true;
@@ -96,15 +92,60 @@ function updateSyncIndicator(status, text) {
     label.textContent = text || 'Sincronizado';
   } else if (status === 'syncing') {
     dot.className = 'w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shrink-0';
-    label.textContent = text || 'Guardando...';
+    label.textContent = text || 'Actualizando...';
   } else if (status === 'error') {
     dot.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0';
     label.textContent = text || 'Error de red';
   }
 }
 
+// Formato moneda limpio sin decimales (ej. "650 €")
+function formatEUR(val) {
+  const rounded = Math.round(Number(val) || 0);
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(rounded);
+}
+
 // ============================================================================
-// AUTENTICACIÓN Y COMUNICACIÓN CON SUPABASE RPC
+// ALGORITMO DE REDONDEO Y REPARTO: ~2/3 GASTOS y ~1/3 AHORRO (SIN CÉNTIMOS)
+// ============================================================================
+// - Redondea el total a aportar a decenas limpias (ej. 525 -> 530, 650 -> 650).
+// - Calcula ~1/3 para Ahorro redondeado a múltiplos limpios (50 € o 100 € en importes altos,
+//   10 € en importes pequeños) y el resto (~2/3) va a Gastos.
+// Ejemplos:
+//   600 € -> 200 € Ahorro + 400 € Gastos
+//   650 € -> 200 € Ahorro + 450 € Gastos
+//   700 € -> 250 € Ahorro + 450 € Gastos
+function calculateRoundedSplit(rawAmount) {
+  const raw = Number(rawAmount) || 0;
+  if (raw <= 0) {
+    return { total: 0, gastos: 0, ahorro: 0 };
+  }
+
+  // Redondear la aportación total a decenas limpias si supera 40 €
+  const total = raw >= 40 ? Math.round(raw / 10) * 10 : Math.round(raw);
+
+  let ahorro = 0;
+  if (total >= 300) {
+    // Redondear el tercio de ahorro al escalón de 50 € más cercano
+    ahorro = Math.round((total / 3) / 50) * 50;
+  } else if (total >= 60) {
+    // En cantidades medianas, redondear el tercio de ahorro a decenas (10 €)
+    ahorro = Math.round((total / 3) / 10) * 10;
+  } else {
+    ahorro = Math.round(total / 3);
+  }
+
+  const gastos = Math.max(0, total - ahorro);
+  return { total, gastos, ahorro };
+}
+
+// ============================================================================
+// AUTENTICACIÓN Y SINCRONIZACIÓN CON SUPABASE
 // ============================================================================
 async function handleLogin(e) {
   e.preventDefault();
@@ -138,7 +179,6 @@ async function handleLogin(e) {
       role: data.role
     });
 
-    // Notificar al gestor de contraseñas / biometría del teléfono (Android / iOS)
     try {
       if (window.PasswordCredential && navigator.credentials && navigator.credentials.store) {
         const cred = new window.PasswordCredential({ id: data.username, password: password, name: data.username });
@@ -185,9 +225,7 @@ function applyRemoteState(remoteData) {
       ...((remoteData && remoteData.config) || {})
     },
     incomes: Array.isArray(remoteData && remoteData.incomes) ? remoteData.incomes : [],
-    expenses: Array.isArray(remoteData && remoteData.expenses) ? remoteData.expenses : [],
     contributions: (remoteData && remoteData.contributions) || {},
-    monthlyExpenseOverrides: (remoteData && remoteData.monthlyExpenseOverrides) || {},
     selectedMonth: currentMonth
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -204,7 +242,6 @@ async function pullStateFromSupabase() {
     });
 
     if (error || !data) {
-      // Si la contraseña cambió o expiró, volvemos al login
       handleLogout();
       return;
     }
@@ -216,6 +253,24 @@ async function pullStateFromSupabase() {
     console.error(err);
     updateSyncIndicator('error');
   }
+}
+
+// Botón manual de Actualizar (ideal para iOS en modo pantalla de inicio)
+async function handleManualRefresh() {
+  const icon = document.getElementById('refresh-icon');
+  if (icon) {
+    icon.classList.remove('spin-anim');
+    void icon.offsetWidth;
+    icon.classList.add('spin-anim');
+  }
+
+  try {
+    if (swRegistration && swRegistration.update) {
+      await swRegistration.update();
+    }
+  } catch (e) {}
+
+  await pullStateFromSupabase();
 }
 
 async function saveState() {
@@ -238,7 +293,7 @@ async function saveState() {
     } else {
       if (data) applyRemoteState(data);
       renderApp();
-      updateSyncIndicator('cloud', 'Guardado en la nube');
+      updateSyncIndicator('cloud', 'Guardado');
     }
   } catch (err) {
     console.error(err);
@@ -246,10 +301,6 @@ async function saveState() {
   } finally {
     isSaving = false;
   }
-}
-
-function formatEUR(val) {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(Number(val) || 0);
 }
 
 // ============================================================================
@@ -264,7 +315,7 @@ function getMemberStats(userKey, month) {
   let pendingIncome = 0;
 
   userIncomes.forEach(inc => {
-    const amt = Number(inc.amount) || 0;
+    const amt = Math.round(Number(inc.amount) || 0);
     totalIncome += amt;
     if (inc.collected) {
       collectedIncome += amt;
@@ -273,10 +324,17 @@ function getMemberStats(userKey, month) {
     }
   });
 
-  const targetTotalShare = Math.round(totalIncome * pct * 100) / 100;
-  const targetCollectedShare = Math.round(collectedIncome * pct * 100) / 100;
-  const alreadyContributed = Number(state.contributions[`${month}_${userKey}`]) || 0;
-  const remainingTotal = Math.max(0, Math.round((targetTotalShare - alreadyContributed) * 100) / 100);
+  // Cálculo redondeado del total del mes y reparto Gastos (2/3) vs Ahorro (1/3)
+  const totalSplit = calculateRoundedSplit(totalIncome * pct);
+  const collectedSplit = calculateRoundedSplit(collectedIncome * pct);
+
+  const targetTotalShare = totalSplit.total;
+  const targetGastos = totalSplit.gastos;
+  const targetAhorro = totalSplit.ahorro;
+
+  const targetCollectedShare = collectedSplit.total;
+  const alreadyContributed = Math.round(Number(state.contributions[`${month}_${userKey}`]) || 0);
+  const remainingTotal = Math.max(0, targetTotalShare - alreadyContributed);
 
   return {
     incomes: userIncomes,
@@ -284,54 +342,18 @@ function getMemberStats(userKey, month) {
     collectedIncome,
     pendingIncome,
     targetTotalShare,
+    targetGastos,
+    targetAhorro,
     targetCollectedShare,
+    collectedGastos: collectedSplit.gastos,
+    collectedAhorro: collectedSplit.ahorro,
     alreadyContributed,
     remainingTotal
   };
 }
 
-function getVisibleExpensesForMonth(month) {
-  return state.expenses.filter(exp => {
-    if (exp.type === 'oneoff') {
-      return exp.createdMonth === month;
-    }
-    return true;
-  });
-}
-
-function getExpenseForMonth(exp, month) {
-  const key = `${month}_${exp.id}`;
-  const override = state.monthlyExpenseOverrides[key];
-
-  if (exp.type === 'fixed') {
-    return { active: true, amount: Number(exp.baseAmount) || 0 };
-  }
-
-  if (exp.type === 'variable') {
-    // En gastos variables, el resto de meses queda a 0 € hasta que se introduzca el valor de ese mes
-    const amt = override && override.amount !== undefined ? Number(override.amount) : 0;
-    return { active: true, amount: amt };
-  }
-
-  if (exp.type === 'periodic') {
-    // Ocasional: desmarcado por defecto salvo los meses en que se active
-    const active = override && typeof override.active === 'boolean' ? override.active : false;
-    const amt = override && override.amount !== undefined ? Number(override.amount) : Number(exp.baseAmount) || 0;
-    return { active, amount: amt };
-  }
-
-  if (exp.type === 'oneoff') {
-    // Puntual: solo existe en el mes en que se creó
-    const isThisMonth = exp.createdMonth === month;
-    const amt = override && override.amount !== undefined ? Number(override.amount) : Number(exp.baseAmount) || 0;
-    return { active: isThisMonth, amount: isThisMonth ? amt : 0 };
-  }
-
-  return { active: true, amount: Number(exp.baseAmount) || 0 };
-}
-
 // ============================================================================
-// RENDERIZADO PRINCIPAL
+// RENDERIZADO PRINCIPAL (TU TARJETA PRIMERO + EL OTRO EN FORMATO BREVE)
 // ============================================================================
 function renderApp() {
   if (!currentSession) return;
@@ -344,12 +366,11 @@ function renderApp() {
   document.getElementById('month-picker').value = month;
   const displayEl = document.getElementById('month-display-text');
   if (displayEl) displayEl.textContent = formatYearMonthES(month);
-  document.getElementById('month-human-label').textContent = `Resumen de ${formatYearMonthES(month)}`;
+  document.getElementById('month-human-label').textContent = `Resumen Conjunto · ${formatYearMonthES(month)}`;
 
-  // Etiqueta del usuario que ha iniciado sesión
   const roleLabel =
     currentSession.role === 'admin'
-      ? '🛡️ Admin (Acceso total)'
+      ? '🛡️ Admin'
       : currentSession.role === 'user1'
       ? state.config.user1Name
       : state.config.user2Name;
@@ -358,55 +379,59 @@ function renderApp() {
   const s1 = getMemberStats('user1', month);
   const s2 = getMemberStats('user2', month);
 
-  let totalMonthExpenses = 0;
-  let activeExpensesCount = 0;
-  const visibleExpenses = getVisibleExpensesForMonth(month);
-  visibleExpenses.forEach(exp => {
-    const mExp = getExpenseForMonth(exp, month);
-    if (mExp.active) {
-      totalMonthExpenses += mExp.amount;
-      activeExpensesCount++;
-    }
-  });
-
+  // Resumen global centrado en Aportado, Pendiente y Reparto Gastos/Ahorro
   const totalTransferred = s1.alreadyContributed + s2.alreadyContributed;
   const totalExpected = s1.targetTotalShare + s2.targetTotalShare;
   const totalMissing = s1.remainingTotal + s2.remainingTotal;
-  const netResult = totalExpected - totalMonthExpenses;
+  const totalGastos = s1.targetGastos + s2.targetGastos;
+  const totalAhorro = s1.targetAhorro + s2.targetAhorro;
 
   document.getElementById('global-transferred').textContent = formatEUR(totalTransferred);
   document.getElementById('global-expected').textContent = `aportados de ${formatEUR(totalExpected)}`;
+  document.getElementById('global-gastos-target').textContent = formatEUR(totalGastos);
+  document.getElementById('global-ahorro-target').textContent = formatEUR(totalAhorro);
 
   const pill = document.getElementById('global-status-pill');
   if (totalExpected === 0 && totalTransferred === 0) {
-    pill.textContent = 'Sin ingresos aún';
-    pill.className = 'inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300';
-  } else if (totalMissing <= 0.01) {
-    pill.textContent = '✅ Todo aportado';
-    pill.className = 'inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-400/20 text-emerald-300';
+    pill.textContent = 'Falta añadir ingresos';
+    pill.className = 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-amber-400/20 text-amber-300';
+  } else if (totalMissing <= 0) {
+    pill.textContent = '✅ Mes completado';
+    pill.className = 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-400/20 text-emerald-300';
   } else {
-    pill.textContent = `Faltan ${formatEUR(totalMissing)}`;
-    pill.className = 'inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-400/20 text-amber-300';
-  }
-
-  document.getElementById('global-expenses').textContent = `-${formatEUR(totalMonthExpenses)}`;
-  document.getElementById('global-expenses-count').textContent = `${activeExpensesCount} recibos activos`;
-
-  const netEl = document.getElementById('global-net');
-  const netSub = document.getElementById('global-net-sub');
-  netEl.textContent = formatEUR(netResult);
-  if (netResult >= 0) {
-    netEl.className = 'text-base sm:text-lg font-bold text-emerald-400 mt-0.5';
-    netSub.textContent = 'Colchón previsto este mes';
-  } else {
-    netEl.className = 'text-base sm:text-lg font-bold text-rose-400 mt-0.5';
-    netSub.textContent = 'Falta para cubrir recibos';
+    pill.textContent = `Pendiente: ${formatEUR(totalMissing)}`;
+    pill.className = 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-amber-400/20 text-amber-300';
   }
 
   renderReminderBanner(s1, s2);
-  renderMemberCard('user1', state.config.user1Name, s1);
-  renderMemberCard('user2', state.config.user2Name, s2);
-  renderExpensesList();
+  renderMembersArea(s1, s2);
+}
+
+// Renderiza primero la tarjeta completa del usuario que ha iniciado sesión
+// y debajo un resumen compacto del otro usuario
+function renderMembersArea(s1, s2) {
+  const area = document.getElementById('members-Area');
+  if (!area) return;
+
+  if (currentSession.role === 'user2') {
+    // Si entra Ana: primero Ana (completa) y debajo Miguel (resumen breve)
+    area.innerHTML = `
+      ${buildFullMemberCardHTML('user2', state.config.user2Name, s2)}
+      ${buildCompactMemberCardHTML('user1', state.config.user1Name, s1)}
+    `;
+  } else if (currentSession.role === 'user1') {
+    // Si entra Miguel: primero Miguel (completa) y debajo Ana (resumen breve)
+    area.innerHTML = `
+      ${buildFullMemberCardHTML('user1', state.config.user1Name, s1)}
+      ${buildCompactMemberCardHTML('user2', state.config.user2Name, s2)}
+    `;
+  } else {
+    // Si entra Admin: ve las dos tarjetas completas para poder gestionar ambas
+    area.innerHTML = `
+      ${buildFullMemberCardHTML('user1', state.config.user1Name, s1)}
+      ${buildFullMemberCardHTML('user2', state.config.user2Name, s2)}
+    `;
+  }
 }
 
 function getMonthPendingDetails(s1, s2) {
@@ -415,7 +440,7 @@ function getMonthPendingDetails(s1, s2) {
 
   if (s1.totalIncome <= 0) {
     missingIncomes.push(state.config.user1Name);
-  } else if (s1.remainingTotal > 0.01) {
+  } else if (s1.remainingTotal > 0) {
     missingContributions.push(
       `${state.config.user1Name} (${formatEUR(s1.remainingTotal)}${s1.pendingIncome > 0 ? ' · cobro pendiente' : ''})`
     );
@@ -423,7 +448,7 @@ function getMonthPendingDetails(s1, s2) {
 
   if (s2.totalIncome <= 0) {
     missingIncomes.push(state.config.user2Name);
-  } else if (s2.remainingTotal > 0.01) {
+  } else if (s2.remainingTotal > 0) {
     missingContributions.push(
       `${state.config.user2Name} (${formatEUR(s2.remainingTotal)}${s2.pendingIncome > 0 ? ' · cobro pendiente' : ''})`
     );
@@ -435,7 +460,7 @@ function getMonthPendingDetails(s1, s2) {
     parts.push(`Falta añadir ingresos de ${missingIncomes.join(' y ')}`);
   }
   if (missingContributions.length > 0) {
-    parts.push(`Falta aportar: ${missingContributions.join(' y ')}`);
+    parts.push(`Pendiente de aportar: ${missingContributions.join(' y ')}`);
   }
 
   return {
@@ -457,7 +482,7 @@ function renderReminderBanner(s1, s2) {
   banner.innerHTML = `
     <span class="text-base shrink-0">🔔</span>
     <div>
-      <span class="font-semibold">Pendiente este mes:</span>
+      <span class="font-semibold">Estado del mes:</span>
       <span class="ml-1">${escapeHtml(details.summaryText)}</span>
     </div>
   `;
@@ -465,229 +490,230 @@ function renderReminderBanner(s1, s2) {
 }
 
 // ============================================================================
-// TARJETA DE MIEMBRO (EDITABLE SI ES TU USUARIO O ADMIN / SOLO LECTURA SI ES EL OTRO)
+// TARJETA COMPLETA DEL USUARIO ACTIVO (SUELDOS + DESGLOSE GASTOS/AHORRO)
 // ============================================================================
-function renderMemberCard(userKey, name, stats) {
+function buildFullMemberCardHTML(userKey, name, stats) {
   const pct = state.config.jointPercentage;
-  const editable = canEditMember(userKey);
-  const container = document.getElementById(`member-card-${userKey}`);
   const progressPct = stats.targetTotalShare > 0
     ? Math.min(100, Math.round((stats.alreadyContributed / stats.targetTotalShare) * 100))
     : 0;
-  const isComplete = stats.targetTotalShare > 0 && stats.remainingTotal <= 0.01;
+  const isComplete = stats.targetTotalShare > 0 && stats.remainingTotal <= 0;
 
-  container.innerHTML = `
-    <div class="space-y-3.5">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
-        <div class="min-w-0">
-          <div class="flex items-center gap-1.5">
-            <h3 class="font-bold text-slate-900 text-base truncate">👤 ${escapeHtml(name)}</h3>
-            ${
-              !editable
-                ? `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 shrink-0">🔒 Solo lectura</span>`
-                : ''
-            }
+  return `
+    <section class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 sm:p-5 space-y-4">
+      <!-- Cabecera de tu tarjeta -->
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="font-bold text-slate-900 text-base sm:text-lg">👤 ${escapeHtml(name)}</h2>
+            <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700">Tu espacio</span>
           </div>
-          <p class="text-xs text-slate-500">Ingresos mes: <strong class="text-slate-700">${formatEUR(stats.totalIncome)}</strong></p>
+          <p class="text-xs text-slate-500 mt-0.5">
+            Ingresos de este mes: <strong class="text-slate-800">${formatEUR(stats.totalIncome)}</strong>
+          </p>
         </div>
+
         ${
           stats.targetTotalShare === 0
-            ? `<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500 shrink-0">0,00 €</span>`
+            ? `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shrink-0">Añade tu sueldo</span>`
             : isComplete
-            ? `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Al día</span>`
-            : `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shrink-0">Faltan ${formatEUR(stats.remainingTotal)}</span>`
+            ? `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Todo aportado</span>`
+            : `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shrink-0">Faltan ${formatEUR(stats.remainingTotal)}</span>`
         }
       </div>
 
-      <!-- Pagadores / Sueldos -->
+      <!-- Lista de Sueldos / Pagadores -->
       <div class="space-y-2">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">1. Mis Sueldos / Ingresos del mes</p>
+
         ${
           stats.incomes.length === 0
-            ? `<p class="text-xs text-slate-400 italic py-1">Sin ingresos anotados este mes.</p>`
+            ? `<p class="text-xs text-slate-400 italic py-1">Aún no has añadido tu sueldo de este mes.</p>`
             : stats.incomes
-                .map(inc => {
-                  if (editable) {
-                    return `
-                      <div class="flex items-center justify-between gap-2 bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-100 text-xs">
-                        <div class="flex items-center gap-1.5 min-w-0 flex-1">
-                          <button type="button" onclick="toggleIncomeCollected('${inc.id}')"
-                            class="px-2 py-1 rounded-lg font-semibold shrink-0 transition ${
-                              inc.collected
-                                ? 'bg-emerald-100 text-emerald-800 active:bg-emerald-200'
-                                : 'bg-amber-100 text-amber-800 active:bg-amber-200'
-                            }">
-                            ${inc.collected ? 'Cobrado' : '⏳ Pendiente'}
-                          </button>
-                          <span class="font-medium text-slate-800 truncate">${escapeHtml(inc.source)}</span>
-                        </div>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                          <input type="number" step="0.01" min="0" value="${inc.amount}"
-                            onchange="updateIncomeAmount('${inc.id}', this.value)"
-                            class="w-20 text-right font-bold text-slate-900 bg-white px-2 py-1 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900" />
-                          <span class="text-slate-500 font-semibold">€</span>
-                          <button type="button" onclick="deleteIncome('${inc.id}')" class="p-1 text-slate-300 hover:text-rose-600">✕</button>
-                        </div>
-                      </div>
-                    `;
-                  } else {
-                    return `
-                      <div class="flex items-center justify-between gap-2 bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-xs">
-                        <div class="flex items-center gap-2 min-w-0">
-                          <span class="px-2 py-0.5 rounded-md font-medium ${
-                            inc.collected ? 'bg-emerald-100/70 text-emerald-800' : 'bg-amber-100/70 text-amber-800'
-                          }">
-                            ${inc.collected ? 'Cobrado' : '⏳ Pendiente'}
-                          </span>
-                          <span class="font-medium text-slate-700 truncate">${escapeHtml(inc.source)}</span>
-                        </div>
-                        <span class="font-bold text-slate-900 shrink-0">${formatEUR(inc.amount)}</span>
-                      </div>
-                    `;
-                  }
-                })
+                .map(
+                  inc => `
+                <div class="flex items-center justify-between gap-2 bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-100 text-xs">
+                  <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                    <button type="button" onclick="toggleIncomeCollected('${inc.id}')"
+                      class="px-2 py-1 rounded-lg font-semibold shrink-0 transition ${
+                        inc.collected
+                          ? 'bg-emerald-100 text-emerald-800 active:bg-emerald-200'
+                          : 'bg-amber-100 text-amber-800 active:bg-amber-200'
+                      }">
+                      ${inc.collected ? 'Cobrado' : '⏳ Pendiente'}
+                    </button>
+                    <span class="font-medium text-slate-800 truncate">${escapeHtml(inc.source)}</span>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <input type="number" step="1" min="0" value="${Math.round(inc.amount)}"
+                      onchange="updateIncomeAmount('${inc.id}', this.value)"
+                      class="w-20 text-right font-bold text-slate-900 bg-white px-2 py-1 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900" />
+                    <span class="text-slate-500 font-semibold">€</span>
+                    <button type="button" onclick="deleteIncome('${inc.id}')" class="p-1 text-slate-300 hover:text-rose-600">✕</button>
+                  </div>
+                </div>
+              `
+                )
                 .join('')
         }
 
-        ${
-          editable
-            ? `<form onsubmit="handleAddIncome(event, '${userKey}')" class="flex gap-1.5 pt-1">
-                <input id="inc-src-${userKey}" type="text" required placeholder="Añadir pagador / sueldo..."
-                  class="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
-                <input id="inc-amt-${userKey}" type="number" step="0.01" min="0" required placeholder="€"
-                  class="w-20 px-2.5 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
-                <button type="submit"
-                  class="px-3 py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition shrink-0">
-                  +
-                </button>
-              </form>`
-            : ''
-        }
-      </div>
-    </div>
-
-    <!-- Aportación parcial / total -->
-    <div class="pt-3 border-t border-slate-100 space-y-2.5">
-      <div class="flex items-center justify-between text-xs">
-        <span class="text-slate-500">Le toca (${pct}%): <strong class="text-slate-900">${formatEUR(stats.targetTotalShare)}</strong></span>
-        <span class="font-semibold text-indigo-600">Ya aportado: ${formatEUR(stats.alreadyContributed)}</span>
+        <form onsubmit="handleAddIncome(event, '${userKey}')" class="flex gap-1.5 pt-1">
+          <input id="inc-src-${userKey}" type="text" required placeholder="Añadir sueldo / pagador..."
+            class="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          <input id="inc-amt-${userKey}" type="number" step="1" min="0" required placeholder="Importe €"
+            class="w-24 px-2.5 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          <button type="submit"
+            class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold rounded-xl text-xs transition shrink-0">
+            +
+          </button>
+        </form>
       </div>
 
-      <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div class="h-full ${isComplete ? 'bg-emerald-500' : 'bg-indigo-600'} transition-all" style="width: ${progressPct}%"></div>
-      </div>
+      <!-- Desglose redondeado en 2 Cuentas: Gastos (~2/3) y Ahorro (~1/3) -->
+      <div class="pt-3 border-t border-slate-100 space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            2. Tu Aportación Redondeada (${pct}%)
+          </p>
+          <span class="text-xs font-bold text-slate-900">Total: ${formatEUR(stats.targetTotalShare)}</span>
+        </div>
 
-      ${
-        stats.pendingIncome > 0
-          ? `<p class="text-[11px] text-amber-700">
-              💡 De lo ya cobrado hoy le toca aportar <strong>${formatEUR(stats.targetCollectedShare)}</strong>.
-             </p>`
-          : ''
-      }
-
-      ${
-        editable
-          ? `<div class="flex flex-wrap items-center gap-1.5 pt-1">
-              <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1 min-w-[140px]">
-                <input id="partial-input-${userKey}" type="number" step="0.01" placeholder="Importe €"
-                  class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                <button type="submit"
-                  class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl text-xs transition shrink-0">
-                  + Sumar
-                </button>
-              </form>
-
-              ${
-                !isComplete && stats.targetTotalShare > 0
-                  ? `<button type="button" onclick="completeContribution('${userKey}', ${stats.targetTotalShare})"
-                      class="px-3 py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold rounded-xl text-xs transition shrink-0">
-                      Completar
-                     </button>`
-                  : ''
-              }
-
-              ${
-                stats.alreadyContributed > 0
-                  ? `<button type="button" onclick="resetContribution('${userKey}')" title="Poner aportación a 0 €"
-                      class="px-2.5 py-2 border border-slate-200 hover:bg-slate-100 text-slate-500 rounded-xl text-xs transition shrink-0">
-                      0 €
-                     </button>`
-                  : ''
-              }
-            </div>`
-          : ''
-      }
-    </div>
-  `;
-}
-
-function renderExpensesList() {
-  const listEl = document.getElementById('expenses-list');
-  const month = state.selectedMonth;
-  const visibleExpenses = getVisibleExpensesForMonth(month);
-
-  if (visibleExpenses.length === 0) {
-    listEl.innerHTML = `<div class="p-6 text-center text-slate-400 text-sm">Aún no hay recibos o gastos en este mes. Añádelos aquí abajo.</div>`;
-    return;
-  }
-
-  const badgeByType = {
-    fixed: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">📌 Fijo</span>`,
-    variable: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-50 text-blue-700">⚡ Variable</span>`,
-    periodic: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-50 text-purple-700">🗓️ Ocasional</span>`,
-    oneoff: `<span class="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-800">🛒 Puntual</span>`
-  };
-
-  listEl.innerHTML = visibleExpenses
-    .map(exp => {
-      const mExp = getExpenseForMonth(exp, month);
-
-      return `
-        <div class="p-3.5 sm:px-5 flex items-center justify-between gap-2 ${
-          mExp.active ? 'bg-white' : 'bg-slate-50/70 opacity-60'
-        } transition">
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="font-semibold text-slate-900 text-sm truncate ${!mExp.active ? 'line-through text-slate-400' : ''}">
-                ${escapeHtml(exp.name)}
+        <div class="grid grid-cols-2 gap-2.5">
+          <!-- Caja Cuenta de Gastos (~2/3) -->
+          <div class="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 flex flex-col justify-between">
+            <div>
+              <span class="text-[11px] font-semibold text-indigo-900 flex items-center gap-1">
+                <span>🏦</span>
+                <span>Cuenta Gastos</span>
               </span>
-              ${badgeByType[exp.type] || ''}
+              <p class="text-lg sm:text-xl font-bold text-indigo-700 mt-0.5">${formatEUR(stats.targetGastos)}</p>
+              <p class="text-[10px] text-indigo-600/80">Aprox. 2/3 (redondeado)</p>
             </div>
+            ${
+              stats.targetGastos > 0 && !isComplete
+                ? `<button type="button" onclick="quickAddContribution('${userKey}', ${stats.targetGastos}, ${stats.targetTotalShare})"
+                    class="mt-2 w-full py-1.5 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-[11px] transition">
+                    + Meter ${formatEUR(stats.targetGastos)}
+                   </button>`
+                : ''
+            }
           </div>
 
-          <div class="flex items-center gap-2 shrink-0">
+          <!-- Caja Cuenta de Ahorro (~1/3) -->
+          <div class="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3 flex flex-col justify-between">
+            <div>
+              <span class="text-[11px] font-semibold text-emerald-900 flex items-center gap-1">
+                <span>🐷</span>
+                <span>Cuenta Ahorro</span>
+              </span>
+              <p class="text-lg sm:text-xl font-bold text-emerald-700 mt-0.5">${formatEUR(stats.targetAhorro)}</p>
+              <p class="text-[10px] text-emerald-600/80">Aprox. 1/3 (redondeado)</p>
+            </div>
             ${
-              exp.type === 'periodic'
-                ? `<button type="button" onclick="toggleExpenseActive('${exp.id}')"
-                    class="px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
-                      mExp.active
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                        : 'bg-white border-slate-200 text-slate-600'
-                    }">
-                    ${mExp.active ? '✓ Toca' : 'No toca'}
+              stats.targetAhorro > 0 && !isComplete
+                ? `<button type="button" onclick="quickAddContribution('${userKey}', ${stats.targetAhorro}, ${stats.targetTotalShare})"
+                    class="mt-2 w-full py-1.5 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-[11px] transition">
+                    + Meter ${formatEUR(stats.targetAhorro)}
+                   </button>`
+                : ''
+            }
+          </div>
+        </div>
+
+        ${
+          stats.pendingIncome > 0
+            ? `<p class="text-[11px] text-amber-800 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200/70">
+                💡 De lo ya cobrado hoy te toca aportar <strong>${formatEUR(stats.targetCollectedShare)}</strong>
+                (<strong>${formatEUR(stats.collectedGastos)}</strong> a Gastos y <strong>${formatEUR(stats.collectedAhorro)}</strong> a Ahorro).
+               </p>`
+            : ''
+        }
+
+        <!-- Barra de progreso y controles de aportación -->
+        <div class="space-y-2 pt-1">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-500">Ya has aportado: <strong class="text-indigo-600">${formatEUR(stats.alreadyContributed)}</strong></span>
+            <span class="font-semibold text-slate-700">Pendiente: ${formatEUR(stats.remainingTotal)}</span>
+          </div>
+
+          <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+            <div class="h-full ${isComplete ? 'bg-emerald-500' : 'bg-indigo-600'} transition-all" style="width: ${progressPct}%"></div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-1.5 pt-1">
+            <form onsubmit="handleAddPartialContribution(event, '${userKey}')" class="flex items-center gap-1.5 flex-1 min-w-[140px]">
+              <input id="partial-input-${userKey}" type="number" step="1" placeholder="Otra cantidad €"
+                class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600" />
+              <button type="submit"
+                class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold rounded-xl text-xs transition shrink-0">
+                + Sumar
+              </button>
+            </form>
+
+            ${
+              !isComplete && stats.targetTotalShare > 0
+                ? `<button type="button" onclick="completeContribution('${userKey}', ${stats.targetTotalShare})"
+                    class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold rounded-xl text-xs transition shrink-0">
+                    Completar todo
                    </button>`
                 : ''
             }
 
             ${
-              mExp.active
-                ? `<div class="flex items-center gap-1">
-                    <input type="number" step="0.01" min="0" value="${mExp.amount}"
-                      onchange="updateExpenseMonthAmount('${exp.id}', this.value)"
-                      class="w-20 text-right font-bold text-slate-900 text-sm px-2 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900" />
-                    <span class="text-xs font-semibold text-slate-500">€</span>
-                   </div>`
-                : `<span class="text-xs font-medium text-slate-400 px-1">0,00 €</span>`
+              stats.alreadyContributed > 0
+                ? `<button type="button" onclick="resetContribution('${userKey}')" title="Poner aportación a 0 €"
+                    class="px-2.5 py-2 border border-slate-200 hover:bg-slate-100 text-slate-500 rounded-xl text-xs transition shrink-0">
+                    0 €
+                   </button>`
+                : ''
             }
-
-            <button type="button" onclick="deleteExpense('${exp.id}')" title="Borrar gasto"
-              class="p-1 text-slate-300 hover:text-rose-600 text-sm">
-              ✕
-            </button>
           </div>
         </div>
-      `;
-    })
-    .join('');
+      </div>
+    </section>
+  `;
+}
+
+// ============================================================================
+// TARJETA REDUCIDA / COMPACTA DEL OTRO MIEMBRO DE LA PAREJA
+// ============================================================================
+function buildCompactMemberCardHTML(userKey, name, stats) {
+  const isComplete = stats.targetTotalShare > 0 && stats.remainingTotal <= 0;
+  const progressPct = stats.targetTotalShare > 0
+    ? Math.min(100, Math.round((stats.alreadyContributed / stats.targetTotalShare) * 100))
+    : 0;
+
+  return `
+    <section class="bg-white/90 rounded-2xl border border-slate-200/80 p-3.5 sm:px-5 shadow-2xs space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="font-bold text-slate-800 text-sm truncate">👤 ${escapeHtml(name)}</span>
+          <span class="text-[11px] text-slate-400">· Ingresos: <strong class="text-slate-600">${formatEUR(stats.totalIncome)}</strong></span>
+        </div>
+
+        ${
+          stats.targetTotalShare === 0
+            ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500 shrink-0">Sin ingresos aún</span>`
+            : isComplete
+            ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 shrink-0">✅ Al día</span>`
+            : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 shrink-0">Faltan ${formatEUR(stats.remainingTotal)}</span>`
+        }
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+        <span>
+          Aportado: <strong class="text-indigo-600">${formatEUR(stats.alreadyContributed)}</strong> de <strong>${formatEUR(stats.targetTotalShare)}</strong>
+        </span>
+        <span class="text-[11px] text-slate-500">
+          (🏦 Gastos: <strong>${formatEUR(stats.targetGastos)}</strong> · 🐷 Ahorro: <strong>${formatEUR(stats.targetAhorro)}</strong>)
+        </span>
+      </div>
+
+      <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div class="h-full ${isComplete ? 'bg-emerald-500' : 'bg-indigo-500'} transition-all" style="width: ${progressPct}%"></div>
+      </div>
+    </section>
+  `;
 }
 
 // ============================================================================
@@ -718,7 +744,7 @@ function handleAddIncome(e, userKey) {
     month: state.selectedMonth,
     owner: userKey,
     source: srcInput.value.trim(),
-    amount: parseFloat(amtInput.value) || 0,
+    amount: Math.round(parseFloat(amtInput.value) || 0),
     collected: true
   });
 
@@ -731,7 +757,7 @@ function handleAddIncome(e, userKey) {
 function updateIncomeAmount(id, newVal) {
   const item = state.incomes.find(i => i.id === id);
   if (!item || !canEditMember(item.owner)) return;
-  item.amount = parseFloat(newVal) || 0;
+  item.amount = Math.round(parseFloat(newVal) || 0);
   renderApp();
   saveState();
 }
@@ -752,17 +778,27 @@ function deleteIncome(id) {
   saveState();
 }
 
+function quickAddContribution(userKey, amountToAdd, maxTarget) {
+  if (!canEditMember(userKey)) return;
+  const key = `${state.selectedMonth}_${userKey}`;
+  const current = Math.round(Number(state.contributions[key]) || 0);
+  const nextVal = Math.min(maxTarget, current + Math.round(amountToAdd));
+  state.contributions[key] = nextVal;
+  renderApp();
+  saveState();
+}
+
 function handleAddPartialContribution(e, userKey) {
   e.preventDefault();
   if (!canEditMember(userKey)) return;
 
   const input = document.getElementById(`partial-input-${userKey}`);
-  const amountToAdd = parseFloat(input.value);
+  const amountToAdd = Math.round(parseFloat(input.value) || 0);
   if (!amountToAdd || amountToAdd <= 0) return;
 
   const key = `${state.selectedMonth}_${userKey}`;
-  const current = Number(state.contributions[key]) || 0;
-  state.contributions[key] = Math.round((current + amountToAdd) * 100) / 100;
+  const current = Math.round(Number(state.contributions[key]) || 0);
+  state.contributions[key] = current + amountToAdd;
 
   input.value = '';
   renderApp();
@@ -772,7 +808,7 @@ function handleAddPartialContribution(e, userKey) {
 function completeContribution(userKey, targetAmount) {
   if (!canEditMember(userKey)) return;
   const key = `${state.selectedMonth}_${userKey}`;
-  state.contributions[key] = Math.round(targetAmount * 100) / 100;
+  state.contributions[key] = Math.round(targetAmount);
   renderApp();
   saveState();
 }
@@ -781,75 +817,6 @@ function resetContribution(userKey) {
   if (!canEditMember(userKey)) return;
   const key = `${state.selectedMonth}_${userKey}`;
   state.contributions[key] = 0;
-  renderApp();
-  saveState();
-}
-
-function handleAddExpense(e) {
-  e.preventDefault();
-  const nameEl = document.getElementById('exp-name');
-  const typeEl = document.getElementById('exp-type');
-  const amtEl = document.getElementById('exp-amount');
-  const enteredAmount = parseFloat(amtEl.value) || 0;
-
-  const newExp = {
-    id: 'exp-' + Date.now(),
-    name: nameEl.value.trim(),
-    type: typeEl.value,
-    baseAmount: typeEl.value === 'variable' ? 0 : enteredAmount,
-    createdMonth: state.selectedMonth
-  };
-
-  state.expenses.push(newExp);
-
-  // Para Variable, Ocasional y Puntual guardamos el importe en el mes actual
-  if (newExp.type === 'variable' || newExp.type === 'periodic' || newExp.type === 'oneoff') {
-    state.monthlyExpenseOverrides[`${state.selectedMonth}_${newExp.id}`] = {
-      active: true,
-      amount: enteredAmount
-    };
-  }
-
-  nameEl.value = '';
-  amtEl.value = '';
-  renderApp();
-  saveState();
-}
-
-function toggleExpenseActive(expId) {
-  const exp = state.expenses.find(x => x.id === expId);
-  if (!exp) return;
-  const current = getExpenseForMonth(exp, state.selectedMonth);
-  const key = `${state.selectedMonth}_${expId}`;
-  state.monthlyExpenseOverrides[key] = {
-    active: !current.active,
-    amount: current.amount
-  };
-  renderApp();
-  saveState();
-}
-
-function updateExpenseMonthAmount(expId, newVal) {
-  const exp = state.expenses.find(x => x.id === expId);
-  if (!exp) return;
-  const parsed = parseFloat(newVal) || 0;
-  const current = getExpenseForMonth(exp, state.selectedMonth);
-  const key = `${state.selectedMonth}_${expId}`;
-
-  if (exp.type === 'fixed' || exp.type === 'oneoff') {
-    exp.baseAmount = parsed;
-  }
-
-  state.monthlyExpenseOverrides[key] = {
-    active: current.active,
-    amount: parsed
-  };
-  renderApp();
-  saveState();
-}
-
-function deleteExpense(expId) {
-  state.expenses = state.expenses.filter(x => x.id !== expId);
   renderApp();
   saveState();
 }
@@ -921,7 +888,6 @@ async function handleChangePassword(e) {
       return;
     }
 
-    // Si el usuario cambió su propia contraseña, actualizamos su sesión activa
     if (targetUser === currentSession.username) {
       currentSession.password = newPassword;
       saveSession(currentSession);
@@ -947,7 +913,7 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
-// PWA INSTALABLE (ANDROID & iOS) Y NOTIFICACIONES WEB PUSH (DÍA 1 Y DÍA 15)
+// PWA INSTALABLE Y NOTIFICACIONES WEB PUSH (DÍA 1 Y DÍA 15)
 // ============================================================================
 let deferredInstallPrompt = null;
 let swRegistration = null;
@@ -1037,7 +1003,6 @@ async function togglePushNotifications() {
   const feedback = document.getElementById('push-feedback');
   feedback.classList.add('hidden');
 
-  // Si ya están activadas, las desactivamos con un toque
   if (isPushEnabled()) {
     localStorage.setItem('cuenta_conjunta_push_enabled', 'false');
     renderPushStatusUI();
@@ -1076,11 +1041,11 @@ async function enablePushNotifications() {
 
     await showSystemNotification(
       'Cuenta Conjunta · Avisos activos',
-      'Te avisaremos el día 1 y el día 15 si queda alguna aportación pendiente.'
+      'Te avisaremos el día 1 y el día 15 si falta añadir ingresos o aportar.'
     );
   } else {
     renderPushStatusUI();
-    feedback.textContent = 'Permiso bloqueado en el navegador. Actívalo en el candado de la barra de direcciones.';
+    feedback.textContent = 'Permiso bloqueado en el navegador. Actívalo en los ajustes del navegador.';
     feedback.className = 'text-xs p-2.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200';
     feedback.classList.remove('hidden');
   }
@@ -1108,7 +1073,6 @@ async function sendTestNotification() {
   feedback.classList.remove('hidden');
 }
 
-// Comprueba automáticamente el día 1 (del 1 al 5) y el día 15 (del 15 al 20) si falta añadir ingresos o aportar
 async function checkAutomaticDay1And15Push() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (localStorage.getItem('cuenta_conjunta_push_enabled') !== 'true') return;
@@ -1139,7 +1103,6 @@ async function checkAutomaticDay1And15Push() {
 document.addEventListener('DOMContentLoaded', () => {
   registerServiceWorker();
   if (currentSession) {
-    // Mostramos la app al instante (0 ms) sin parpadeo de login mientras sincroniza en segundo plano
     showAppScreen();
     pullStateFromSupabase();
   } else {
