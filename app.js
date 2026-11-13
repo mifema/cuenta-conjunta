@@ -328,6 +328,12 @@ function getUserAccountContributions(userKey, month, targetGastos) {
   return { gastos: 0, ahorro: 0 };
 }
 
+function getMonthIncomeSum(userKey, month) {
+  return state.incomes
+    .filter(i => i.owner === userKey && i.month === month)
+    .reduce((acc, inc) => acc + Math.round(Number(inc.amount) || 0), 0);
+}
+
 function getMemberStats(userKey, month) {
   const pct = (Number(state.config.jointPercentage) || 25) / 100;
   const userIncomes = state.incomes.filter(i => i.owner === userKey && i.month === month);
@@ -346,15 +352,40 @@ function getMemberStats(userKey, month) {
     }
   });
 
-  // Cálculo redondeado del total del mes y reparto Gastos (2/3) vs Ahorro (1/3)
-  const totalSplit = calculateRoundedSplit(totalIncome * pct);
+  // Cálculo redondeado del total que le toca aportar a este miembro
+  const ownSplit = calculateRoundedSplit(totalIncome * pct);
   const collectedSplit = calculateRoundedSplit(collectedIncome * pct);
+  const targetTotalShare = ownSplit.total;
 
-  const targetTotalShare = totalSplit.total;
-  const targetGastos = totalSplit.gastos;
-  const targetAhorro = totalSplit.ahorro;
+  // REGLA INDISPENSABLE:
+  // La aportación a Cuenta Ahorro es SIEMPRE LA MISMA para los dos miembros,
+  // adaptándose al ~1/3 redondeado del miembro que MENOS cobre ese mes.
+  // El que cobre más destina todo el resto de su aportación a la Cuenta de Gastos.
+  const otherKey = userKey === 'user1' ? 'user2' : 'user1';
+  const otherIncome = getMonthIncomeSum(otherKey, month);
+
+  let targetAhorro = 0;
+  let targetGastos = 0;
+  let isAhorroProvisional = false;
+
+  if (targetTotalShare > 0) {
+    if (otherIncome > 0) {
+      const minIncome = Math.min(totalIncome, otherIncome);
+      const minSplit = calculateRoundedSplit(minIncome * pct);
+      targetAhorro = Math.min(targetTotalShare, minSplit.ahorro);
+      targetGastos = Math.max(0, targetTotalShare - targetAhorro);
+    } else {
+      // Si el otro miembro aún no ha metido sus ingresos del mes, calculamos provisionalmente con el propio
+      targetAhorro = ownSplit.ahorro;
+      targetGastos = ownSplit.gastos;
+      isAhorroProvisional = true;
+    }
+  }
 
   const targetCollectedShare = collectedSplit.total;
+  const collectedAhorro = Math.min(targetAhorro, collectedSplit.ahorro);
+  const collectedGastos = Math.max(0, targetCollectedShare - collectedAhorro);
+
   const acct = getUserAccountContributions(userKey, month, targetGastos);
 
   const contributedGastos = acct.gastos;
@@ -373,9 +404,10 @@ function getMemberStats(userKey, month) {
     targetTotalShare,
     targetGastos,
     targetAhorro,
+    isAhorroProvisional,
     targetCollectedShare,
-    collectedGastos: collectedSplit.gastos,
-    collectedAhorro: collectedSplit.ahorro,
+    collectedGastos,
+    collectedAhorro,
     contributedGastos,
     contributedAhorro,
     remainingGastos,
@@ -683,7 +715,7 @@ function buildFullMemberCardHTML(userKey, name, stats) {
               <div class="flex items-center justify-between gap-1">
                 <span class="text-xs font-bold text-indigo-950 flex items-center gap-1">
                   <span>🏦</span>
-                  <span>Cuenta Gastos (~2/3)</span>
+                  <span>Cuenta Gastos</span>
                 </span>
                 ${
                   stats.targetGastos === 0
@@ -699,6 +731,7 @@ function buildFullMemberCardHTML(userKey, name, stats) {
                   ${formatEUR(stats.contributedGastos)}
                   <span class="text-xs font-medium text-slate-500">de ${formatEUR(stats.targetGastos)}</span>
                 </p>
+                <span class="text-[10px] text-indigo-700/80">Resto de tu aportación</span>
               </div>
 
               <!-- Barra de progreso exclusiva de Gastos -->
@@ -744,7 +777,7 @@ function buildFullMemberCardHTML(userKey, name, stats) {
               <div class="flex items-center justify-between gap-1">
                 <span class="text-xs font-bold text-emerald-950 flex items-center gap-1">
                   <span>🐷</span>
-                  <span>Cuenta Ahorro (~1/3)</span>
+                  <span>Cuenta Ahorro</span>
                 </span>
                 ${
                   stats.targetAhorro === 0
@@ -760,6 +793,7 @@ function buildFullMemberCardHTML(userKey, name, stats) {
                   ${formatEUR(stats.contributedAhorro)}
                   <span class="text-xs font-medium text-slate-500">de ${formatEUR(stats.targetAhorro)}</span>
                 </p>
+                <span class="text-[10px] text-emerald-800/80">Igual para ambos</span>
               </div>
 
               <!-- Barra de progreso exclusiva de Ahorro -->
@@ -793,6 +827,14 @@ function buildFullMemberCardHTML(userKey, name, stats) {
             </div>
           </div>
         </div>
+
+        ${
+          stats.isAhorroProvisional
+            ? `<p class="text-[11px] text-slate-600 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200/80">
+                ℹ️ La cuota de <strong>Cuenta Ahorro</strong> es provisional hasta que la otra persona añada su sueldo del mes (ambos aportaréis lo mismo a Ahorro según quien cobre menos).
+               </p>`
+            : ''
+        }
 
         ${
           stats.pendingIncome > 0
