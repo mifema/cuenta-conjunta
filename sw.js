@@ -2,7 +2,7 @@
 // SERVICE WORKER · PWA INSTALABLE + NOTIFICACIONES PUSH (ANDROID & iOS)
 // ============================================================================
 
-const CACHE_NAME = 'cuenta-conjunta-pwa-v6';
+const CACHE_NAME = 'cuenta-conjunta-pwa-v7';
 
 self.addEventListener('install', event => {
   self.skipWaiting();
