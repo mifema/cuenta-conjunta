@@ -2,25 +2,28 @@
 // SERVICE WORKER · PWA INSTALABLE + NOTIFICACIONES PUSH (ANDROID & iOS)
 // ============================================================================
 
-const CACHE_NAME = 'cuenta-conjunta-pwa-v4';
+const CACHE_NAME = 'cuenta-conjunta-pwa-v5';
 
 self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(self.clients.claim());
-});
-
-// Necesario para que Chrome en Android habilite "Instalar aplicación" (PWA real)
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
 });
 
-// Recepción de eventos Web Push
+// Siempre red primero sin caché antigua para que en iOS se vean los cambios al instante
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(
+    fetch(event.request, { cache: 'no-store' }).catch(() => caches.match(event.request))
+  );
+});
+
 self.addEventListener('push', event => {
   let payload = {
     title: 'Cuenta Conjunta',
@@ -46,7 +49,6 @@ self.addEventListener('push', event => {
   );
 });
 
-// Mensajes desde la aplicación para lanzar notificaciones nativas del sistema
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
     const { title, body } = event.data;
@@ -61,7 +63,6 @@ self.addEventListener('message', event => {
   }
 });
 
-// Al tocar la notificación en Android o iPhone, abre la app
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const targetUrl = (event.notification.data && event.notification.data.url) || '/';
